@@ -29,16 +29,6 @@ get_option()
 	return 1
 }
 
-get_java_option()
-{
-	get_option java "${1}"
-}
-
-get_javac_option()
-{
-	get_option javac "${1}"
-}
-
 usage()
 {
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} version"
