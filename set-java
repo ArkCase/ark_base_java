@@ -1,0 +1,66 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+list_options()
+{
+	local NAME="${1}"
+	local VER="${2}"
+	local A B C
+	alternatives --config "${NAME}" </dev/null 2>/dev/null | \
+		grep "java-${VER}-" | \
+		while read A B C ; do
+			[[ "${A}" =~ ^[1-9][0-9]*$ ]] && echo "${A} ${B} ${C}" || echo "${B} ${C}"
+		done | sort -n
+}
+
+get_option()
+{
+	local NAME="${1}"
+	local VER="${2}"
+	local OPTIONS=()
+	readarray -t OPTIONS < <(list_options "${NAME}" "${VER}")
+	case ${#OPTIONS[@]} in
+		0 ) echo "No alternatives were found for ${NAME} version ${VER}" ;;
+		1 ) echo "${OPTIONS[0]}" ; return 0 ;;
+		* ) echo "The alternative for ${NAME} version ${VER} had ${#OPTIONS[@]} options: [${OPTIONS[@]}]" ;;
+	esac
+	return 1
+}
+
+get_java_option()
+{
+	get_option java "${1}"
+}
+
+get_javac_option()
+{
+	get_option javac "${1}"
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} version"
+	exit 1
+}
+
+[ ${#} -eq 1 ] || usage
+[ -n "${1}" ] || usage
+
+VER="${1}"
+
+for ALT in java javac ; do
+	alternatives --display "${ALT}" &>/dev/null || continue
+
+	if [ "${VER,,}" == "auto" ] ; then
+		alternatives --auto "${ALT}" || fail "Failed to re-set the alternative ${ALT} to auto mode"
+		ok "Re-set the ${ALT} alternative to automatic mode"
+		continue
+	fi
+
+	OUT="$(get_option "${ALT}" "${VER}")" || fail "${OUT}"
+	read NUM LABEL <<< "${OUT}"
+	RESULT="$(echo "${NUM}" | alternatives --config "${ALT}" 2>&1)" || fail "Failed to configure the ${ALT} alternative to [${LABEL}]  (number ${NUM}) (rc=${?}):\n${RESULT}"
+	ok "Set ${ALT} to [${LABEL}]"
+done
