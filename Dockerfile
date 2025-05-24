@@ -50,6 +50,8 @@ ENV JAVA_HOME="/usr/lib/jvm/java" \
 
 ARG VER
 
+ARG CACERTS="/etc/pki/java/cacerts"
+
 ENV LANG=en_US.UTF-8 \
     LANGUAGE=en_US:en \
     LC_ALL=en_US.UTF-8
@@ -66,6 +68,13 @@ RUN yum -y install \
         java-21-openjdk-devel \
       && \
     yum -y clean all
+
+#
+# This is an important fix to ensure that all installed JVMs
+# have their default cacerts file replaced with a link to
+# the OS-provided cacerts file
+#
+RUN find /usr/lib/jvm -type f -name cacerts | while read file ; do ln -v "${file}" "${file}.orig" && rm -vf "${file}" && ln -vs "${CACERTS}" "${file}" ; done
 
 # Set the Java-centric envvars to paths that will be
 # manipulated via the alternatives mechanism, so they
