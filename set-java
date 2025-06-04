@@ -31,9 +31,18 @@ get_option()
 
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} version"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ version ]"
+	echo -e ""
+	echo -e "\tIf the version is not given as a parameter, an attempt"
+	echo -e "\twill be made to read it from the environment variable"
+	echo -e "\tALT_JAVA if it's defined and non-empty."
+	echo -e ""
 	exit 1
 }
+
+# If no parameter is given, we try to select the java
+# version from the ALT_JAVA ENVVAR
+[ ${#} -eq 0 ] && [ -v ALT_JAVA ] && [ -n "${ALT_JAVA}" ] && set -- "${ALT_JAVA}"
 
 [ ${#} -eq 1 ] || usage
 [ -n "${1}" ] || usage
