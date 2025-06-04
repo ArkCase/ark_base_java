@@ -31,7 +31,7 @@ get_option()
 
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ version ]"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ -? | -h | --help ] [ version ]"
 	echo -e ""
 	echo -e "\tIf the version is not given as a parameter, an attempt"
 	echo -e "\twill be made to read it from the environment variable"
@@ -44,8 +44,13 @@ usage()
 # version from the ALT_JAVA ENVVAR
 [ ${#} -eq 0 ] && [ -v ALT_JAVA ] && [ -n "${ALT_JAVA}" ] && set -- "${ALT_JAVA}"
 
-[ ${#} -eq 1 ] || usage
+[ ${#} -eq 1 ] || quit "No changes to Java version"
 [ -n "${1}" ] || usage
+
+# Some parameter QA
+case "${1,,}" in
+	"-?" | "-h" | "--help" ) usage ;;
+esac
 
 # Make sure we run as root
 [ $(id -u) -eq 0 ] || exec sudo --non-interactive --preserve-env "PATH=${PATH}" "${0}" "${@}"
