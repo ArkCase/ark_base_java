@@ -86,7 +86,10 @@ ENV JRE_HOME="/usr/lib/jvm/jre"
 # Add the JVM selector script
 #
 COPY --chown=root:root set-java /usr/local/bin
-RUN chmod 0755 /usr/local/bin/set-java
+COPY --chown=root:root 01-set-java /etc/sudoers.d
+RUN chmod 0640 /etc/sudoers.d/01-set-java && \
+    chmod 0755 /usr/local/bin/set-java && \
+    sed -i -e "s;\${ACM_GROUP};${ACM_GROUP};g" /etc/sudoers.d/01-set-java
 
 #
 # Default to Java 11 (Amazon Coretto), for now

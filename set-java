@@ -38,6 +38,9 @@ usage()
 [ ${#} -eq 1 ] || usage
 [ -n "${1}" ] || usage
 
+# Make sure we run as root
+[ $(id -u) -eq 0 ] || exec sudo --non-interactive --preserve-env "PATH=${PATH}" "${0}" "${@}"
+
 VER="${1}"
 
 for ALT in java javac ; do
