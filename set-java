@@ -49,7 +49,7 @@ usage()
 # java -fullversion command
 if [ ${#} -ne 1 ] ; then
 	OUT="$(java -fullversion 2>&1)" || fail "Unable to determine the current Java version"
-	echo -n "${OUT}" | sed -e 's;^[^"]*";;g' -e 's;[.].*$;;g'
+	echo "${OUT}" | sed -e 's;^[^"]*";;g' -e 's;[.].*$;;g'
 	exit 0
 fi
 
