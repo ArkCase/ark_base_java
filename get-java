@@ -1,0 +1,8 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+OUT="$(java -fullversion 2>&1)" || fail "Unable to determine the current Java version (rc=${?}): ${OUT}"
+echo "${OUT}" | sed -e 's;^[^"]*";;g' -e 's;[.].*$;;g'
+exit 0
