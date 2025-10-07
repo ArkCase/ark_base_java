@@ -149,3 +149,7 @@ RUN mkdir -p "${CRYPTO_DIR}" && \
 # Default to Java 11 (Amazon Coretto), for now
 #
 RUN /usr/local/bin/set-java 11
+
+# STIG Remediations
+COPY --chown=root:root stig/ /usr/share/stig/
+RUN cd /usr/share/stig && ./run-all
