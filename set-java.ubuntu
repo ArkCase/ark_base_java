@@ -69,4 +69,23 @@ fi
 
 OUT="$(get_option "${VER}")" || fail "${OUT}"
 RESULT="$(update-java-alternatives --set "${OUT}" 2>&1)" || fail "Failed to configure the Java alternative to [${OUT}]  (number ${NUM}) (rc=${?}):\n${RESULT}"
+
+JAVA="$(type -P java 2>/dev/null)" || fail "Java is not in the PATH!!"
+JAVA="$(readlink -f "${JAVA}" 2>&1)" || fail "Failed to resolve the real location of the Java executable (rc=${?}): ${JAVA}"
+
+# Java is actually in the directory ${JVM}/bin ... so find JVM!
+JVM="$(dirname "$(dirname "${JAVA}")")"
+JVM="$(readlink -f "${JVM}" 2>&1)" || fail "Failed to resolve the real location of the JAVA_HOME directory (rc=${?}): ${JVM}"
+
+# Now we fix the ${JVM_BASE}/java and ${JVM_BASE}/jre symlinks
+JVM_BASE="/usr/lib/jvm"
+for SYM in java jre ; do
+	SYM="${JVM_BASE}/${SYM}"
+	if [ -e "${SYM}" ] ; then
+		[ -h "${SYM}" ] || fail "The Java symbolic target [${SYM}] is not a symbolic link"
+		OUT="$(rm -f "${SYM}" 2>&1)" || fail "Failed to clear the existing symbolic link at [${SYM}] (rc=${?}): ${OUT}"
+	fi
+	OUT="$(ln -sv "${JVM}" "${SYM}" 2>&1)" || fail "Failed to create the new symbolic link [${SYM}] -> [${JVM}] (rc=${?}): ${OUT}"
+done
+
 ok "Set Java to [${OUT}]"
