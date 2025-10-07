@@ -1,0 +1,72 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+list_options()
+{
+	local VER="${1}"
+	local A B C
+	update-java-alternatives --list </dev/null 2>/dev/null | \
+		awk '{ print $1 }' | \
+		egrep "java-((0|[1-9][0-9]*)[.])?${VER}([.][0-9]+])?" | \
+		sort
+}
+
+get_option()
+{
+	local VER="${1}"
+	local OPTIONS=()
+	readarray -t OPTIONS < <(list_options "${VER}")
+	case ${#OPTIONS[@]} in
+		0 ) echo "No Java alternatives were found for version ${VER}" ;;
+		1 ) echo "${OPTIONS[0]}" ; return 0 ;;
+		* ) echo "The Java alternative for version ${VER} had ${#OPTIONS[@]} options: [${OPTIONS[@]}]" ;;
+	esac
+	return 1
+}
+
+usage()
+{
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ -? | -h | --help ] [ version ]"
+	echo -e ""
+	echo -e "\tIf the version is not given as a parameter, an attempt"
+	echo -e "\twill be made to read it from the environment variable"
+	echo -e "\tALT_JAVA if it's defined and non-empty."
+	echo -e ""
+	exit 1
+}
+
+# If no parameter is given, we try to select the java
+# version from the ALT_JAVA ENVVAR
+[ ${#} -eq 0 ] && [ -v ALT_JAVA ] && [ -n "${ALT_JAVA}" ] && set -- "${ALT_JAVA}"
+
+# If we're not being asked to set a Java version, we simply
+# output the current one by parsing the output of the
+# java -fullversion command
+if [ ${#} -ne 1 ] ; then
+	OUT="$(java -fullversion 2>&1)" || fail "Unable to determine the current Java version"
+	echo "${OUT}" | sed -e 's;^[^"]*";;g' -e 's;[.].*$;;g'
+	exit 0
+fi
+
+[ -n "${1}" ] || usage
+
+# Some parameter QA
+case "${1,,}" in
+	"-?" | "-h" | "--help" ) usage ;;
+esac
+
+# Make sure we run as root
+[ $(id -u) -eq 0 ] || exec sudo --non-interactive --preserve-env "PATH=${PATH}" "${0}" "${@}"
+
+VER="${1}"
+
+if [ "${VER,,}" == "auto" ] ; then
+	update-java-alternatives --auto &>/dev/null || fail "Failed to re-set the Java alternative to auto mode"
+	quit "Re-set the java alternative to automatic mode"
+fi
+
+OUT="$(get_option "${VER}")" || fail "${OUT}"
+RESULT="$(update-java-alternatives --set "${OUT}" 2>&1)" || fail "Failed to configure the Java alternative to [${OUT}]  (number ${NUM}) (rc=${?}):\n${RESULT}"
+ok "Set Java to [${OUT}]"

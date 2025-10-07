@@ -3,32 +3,6 @@
 set -euo pipefail
 . /.functions
 
-list_options()
-{
-	local NAME="${1}"
-	local VER="${2}"
-	local A B C
-	alternatives --config "${NAME}" </dev/null 2>/dev/null | \
-		grep "java-${VER}-" | \
-		while read A B C ; do
-			[[ "${A}" =~ ^[1-9][0-9]*$ ]] && echo "${A} ${B} ${C}" || echo "${B} ${C}"
-		done | sort -n
-}
-
-get_option()
-{
-	local NAME="${1}"
-	local VER="${2}"
-	local OPTIONS=()
-	readarray -t OPTIONS < <(list_options "${NAME}" "${VER}")
-	case ${#OPTIONS[@]} in
-		0 ) echo "No alternatives were found for ${NAME} version ${VER}" ;;
-		1 ) echo "${OPTIONS[0]}" ; return 0 ;;
-		* ) echo "The alternative for ${NAME} version ${VER} had ${#OPTIONS[@]} options: [${OPTIONS[@]}]" ;;
-	esac
-	return 1
-}
-
 usage()
 {
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ -? | -h | --help ] [ version ]"
@@ -44,38 +18,11 @@ usage()
 # version from the ALT_JAVA ENVVAR
 [ ${#} -eq 0 ] && [ -v ALT_JAVA ] && [ -n "${ALT_JAVA}" ] && set -- "${ALT_JAVA}"
 
-# If we're not being asked to set a Java version, we simply
-# output the current one by parsing the output of the
-# java -fullversion command
-if [ ${#} -ne 1 ] ; then
-	OUT="$(java -fullversion 2>&1)" || fail "Unable to determine the current Java version"
-	echo "${OUT}" | sed -e 's;^[^"]*";;g' -e 's;[.].*$;;g'
-	exit 0
-fi
+. /etc/os-release || fail "Failed to source the O/S identification file"
 
-[ -n "${1}" ] || usage
+CANDIDATES=( "${ID:-linux}" ${ID_LIKE} )
 
-# Some parameter QA
-case "${1,,}" in
-	"-?" | "-h" | "--help" ) usage ;;
-esac
-
-# Make sure we run as root
-[ $(id -u) -eq 0 ] || exec sudo --non-interactive --preserve-env "PATH=${PATH}" "${0}" "${@}"
-
-VER="${1}"
-
-for ALT in java javac ; do
-	alternatives --display "${ALT}" &>/dev/null || continue
-
-	if [ "${VER,,}" == "auto" ] ; then
-		alternatives --auto "${ALT}" || fail "Failed to re-set the alternative ${ALT} to auto mode"
-		ok "Re-set the ${ALT} alternative to automatic mode"
-		continue
-	fi
-
-	OUT="$(get_option "${ALT}" "${VER}")" || fail "${OUT}"
-	read NUM LABEL <<< "${OUT}"
-	RESULT="$(echo "${NUM}" | alternatives --config "${ALT}" 2>&1)" || fail "Failed to configure the ${ALT} alternative to [${LABEL}]  (number ${NUM}) (rc=${?}):\n${RESULT}"
-	ok "Set ${ALT} to [${LABEL}]"
+for CANDIDATE in "${CANDIDATES[@]}" ; do
+	EXE="$(type -P "set-java.${CANDIDATE}" 2>/dev/null)" && exec "${EXE}" "${@}"
 done
+fail "Couldn't find a set-java variant for any of these candidates: [ ${CANDIDATES[@]} ]"

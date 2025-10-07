@@ -18,7 +18,7 @@
 ARG PUBLIC_REGISTRY="public.ecr.aws"
 ARG ARCH="amd64"
 ARG OS="linux"
-ARG VER="8"
+ARG VER="22.04"
 
 ARG BC_GROUP="org.bouncycastle"
 
@@ -80,7 +80,8 @@ ENV JAVA_HOME="/usr/lib/jvm/java" \
 
 ARG VER
 
-ARG CACERTS="/etc/pki/java/cacerts"
+# ARG CACERTS="/etc/pki/java/cacerts"
+ARG CACERTS="/etc/ssl/certs/java/cacerts"
 
 ENV LANG=en_US.UTF-8 \
     LANGUAGE=en_US:en \
@@ -92,19 +93,29 @@ ENV TMP="${TEMP}"
 #
 # Add the JVMs
 #
-RUN yum -y install \
-        https://corretto.aws/downloads/latest/amazon-corretto-11-x64-linux-jdk.rpm \
-        java-17-openjdk-devel \
-        java-21-openjdk-devel \
+RUN wget -O - https://apt.corretto.aws/corretto.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/corretto-keyring.gpg && \
+    chmod a+r /etc/apt/trusted.gpg.d/corretto-keyring.gpg && \
+    echo "deb [signed-by=/etc/apt/trusted.gpg.d/corretto-keyring.gpg] https://apt.corretto.aws stable main" | tee /etc/apt/sources.list.d/corretto.list && \
+    apt-get update
+
+RUN apt-get -y install \
+        java-11-amazon-corretto-jdk \
+        openjdk-17-jdk \
+        openjdk-21-jdk \
       && \
-    yum -y clean all
+    apt-get clean
 
 #
 # This is an important fix to ensure that all installed JVMs
 # have their default cacerts file replaced with a link to
 # the OS-provided cacerts file
 #
-RUN find /usr/lib/jvm -type f -name cacerts | while read file ; do ln -v "${file}" "${file}.orig" && rm -vf "${file}" && ln -vs "${CACERTS}" "${file}" ; done
+RUN find /usr/lib/jvm -type f -name cacerts | \
+    while read file ; do \
+        ln -v "${file}" "${file}.orig" && \
+        rm -vf "${file}" && \
+        ln -vs "${CACERTS}" "${file}" ; \
+    done
 
 # Set the Java-centric envvars to paths that will be
 # manipulated via the alternatives mechanism, so they
@@ -115,7 +126,7 @@ ENV JRE_HOME="/usr/lib/jvm/jre"
 #
 # Add the JVM selector script
 #
-COPY --chown=root:root --chmod=0755 set-java get-java fix-jars /usr/local/bin
+COPY --chown=root:root --chmod=0755 set-java set-java.* get-java fix-jars /usr/local/bin
 COPY --chown=root:root --chmod=0640 01-set-java /etc/sudoers.d
 RUN sed -i -e "s;\${ACM_GROUP};${ACM_GROUP};g" /etc/sudoers.d/01-set-java
 
