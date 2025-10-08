@@ -70,22 +70,10 @@ LABEL ORG="ArkCase LLC" \
       APP="ArkCase Base Java Image" \
       VERSION="${VER}"
 
-#
-# Environment variables
-#
-ENV JAVA_HOME="/usr/lib/jvm/java" \
-    LANG="en_US.UTF-8" \
-    LANGUAGE="en_US:en" \
-    LC_ALL="en_US.UTF-8"
-
 ARG VER
 
 # ARG CACERTS="/etc/pki/java/cacerts"
 ARG CACERTS="/etc/ssl/certs/java/cacerts"
-
-ENV LANG=en_US.UTF-8 \
-    LANGUAGE=en_US:en \
-    LC_ALL=en_US.UTF-8
 
 ENV TEMP="${BASE_DIR}/temp"
 ENV TMP="${TEMP}"
