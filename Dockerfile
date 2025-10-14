@@ -114,7 +114,7 @@ ENV JRE_HOME="/usr/lib/jvm/jre"
 #
 # Add the JVM selector script
 #
-COPY --chown=root:root --chmod=0755 set-java set-java.* get-java fix-jars /usr/local/bin
+COPY --chown=root:root --chmod=0755 set-java set-java.* get-java fix-jars apache-download /usr/local/bin
 COPY --chown=root:root --chmod=0640 01-set-java /etc/sudoers.d
 RUN sed -i -e "s;\${ACM_GROUP};${ACM_GROUP};g" /etc/sudoers.d/01-set-java
 
