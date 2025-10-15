@@ -20,6 +20,10 @@ ARG ARCH="amd64"
 ARG OS="linux"
 ARG VER="22.04"
 
+ARG JMX_VER="1.5.0"
+# ARG JMX_KEYS="https://populate-this-when-we-can"
+ARG JMX_SRC="https://github.com/prometheus/jmx_exporter/releases/download/${JMX_VER}/jmx_prometheus_javaagent-${JMX_VER}.jar"
+
 ARG BC_GROUP="org.bouncycastle"
 
 ARG BC_PKIX_GROUP="${BC_GROUP}"
@@ -56,6 +60,8 @@ FROM "${BASE_IMG}"
 ARG ARCH
 ARG OS
 ARG VER
+ARG JMX_KEYS
+ARG JMX_SRC
 ARG BC_PKIX
 ARG BC_PKIX_SRC
 ARG BC_PROV
@@ -75,7 +81,7 @@ ARG VER
 # ARG CACERTS="/etc/pki/java/cacerts"
 ARG CACERTS="/etc/ssl/certs/java/cacerts"
 
-ENV TEMP="${BASE_DIR}/temp"
+ENV TEMP="${TEMP_DIR}"
 ENV TMP="${TEMP}"
 
 #
@@ -114,9 +120,21 @@ ENV JRE_HOME="/usr/lib/jvm/jre"
 #
 # Add the JVM selector script
 #
-COPY --chown=root:root --chmod=0755 set-java set-java.* get-java fix-jars apache-download /usr/local/bin
+COPY --chown=root:root --chmod=0755 set-java set-java.* get-java fix-jars verified-download /usr/local/bin
 COPY --chown=root:root --chmod=0640 01-set-java /etc/sudoers.d
 RUN sed -i -e "s;\${ACM_GROUP};${ACM_GROUP};g" /etc/sudoers.d/01-set-java
+
+#
+# Add the common-use JMX agent JAR
+#
+ENV LIB_DIR="${BASE_DIR}/lib"
+ENV JMX_AGENT_JAR="${LIB_DIR}/jmx-prometheus-agent.jar"
+ENV JMX_AGENT_CONF="${CONF_DIR}/jmx-prometheus-agent.yaml"
+ENV JMX_AGENT_ARG="-javaagent:${JMX_AGENT_JAR}=9100:${JMX_AGENT_CONF}"
+
+COPY --chown=root:root --chmod=0755 jmx-prometheus-agent.yaml "${CONF_DIR}"
+RUN mkdir -p "${LIB_DIR}" && \
+    verified-download --hash "sha256" "${JMX_SRC}" "${JMX_AGENT_JAR}"
 
 #
 # Add the BouncyCastle FIPS stuff

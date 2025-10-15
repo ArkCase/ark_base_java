@@ -1,0 +1,143 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+cleanup()
+{
+	[ -v WORKDIR ] && rm -rf "${WORKDIR}" &>/dev/null
+}
+
+urldecode()
+{
+	: "${*//+/ }"
+	echo -e "${_//%/\\x}"
+}
+
+usage()
+{
+	[ ${#} -gt 0 ] && err "${@}"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ --keys keys-url ] [ --hash hash ] artifact-url [ target ]"
+	exit 1
+}
+
+set_or_default HASH "sha512"
+set_or_default KEYS_URL
+
+ARGS="$(getopt -o "h?" -l "help,keys:,hash:" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}" 2>/dev/null)" || usage
+eval set -- "${ARGS}"
+
+KEYS_SET="false"
+HASH_SET="false"
+
+while true ; do
+	case "${1}" in
+		--keys )
+			as_boolean "${KEYS_SET}" && fail "You may specify ${1} only once"
+			KEYS_SET="true"
+			KEYS_URL="${2}"
+			shift 2
+			;;
+
+		--hash )
+			as_boolean "${HASH_SET}" && fail "You may specify ${1} only once"
+			HASH_SET="true"
+			HASH="${2}"
+			shift 2
+			;;
+
+		--help | -h ) usage ;;
+
+		-- ) shift ; break ;;
+	esac
+done
+
+[ ${#} -ge 1 ] || usage
+[ ${#} -le 2 ] || usage
+
+ARTIFACT_URL="${1}"
+[ -n "${ARTIFACT_URL}" ] || fail "Can't use an empty artifact URL"
+
+if [ ${#} -eq 2 ] ; then
+	TARGET="${2}"
+	[ -n "${TARGET}" ] || fail "Can't use an empty target location"
+else
+	TARGET="$(readlink -f .)"
+fi
+
+if [ -e "${TARGET}" ] ; then
+	if is_dir "${TARGET}" ; then
+		require_dir_writable "${TARGET}"
+		TARGET_DIR="${TARGET}"
+		TARGET_NAME=""
+	else
+		TARGET_DIR="$(dirname "${TARGET}")"
+		TARGET_NAME="$(basename "${TARGET}")"
+	fi
+else
+	TARGET_DIR="$(dirname "${TARGET}")"
+	TARGET_NAME="$(basename "${TARGET}")"
+fi
+
+set_or_default HASH_EXE "${HASH}sum"
+set_or_default HASH_EXE_ARGS "-c"
+
+type -P "${HASH_EXE}" &>/dev/null || fail "Could not find the checksum checker [${HASH_EXE}] in the path"
+to_array HASH_EXE_ARGS
+
+TARGET_DIR="$(readlink -f "${TARGET_DIR}")" || fail "Failed to identify the true target directory for [${TARGET}]"
+mkdir -p "${TARGET_DIR}" || fail "Failed to create the target directory at [${TARGET_DIR}] (rc=${?})"
+
+WORKDIR="$(mktemp --directory --tmpdir "apache-download.XXXXXXXX")"
+trap cleanup EXIT
+
+cd "${WORKDIR}" || fail "Failed to CD into the working directory [${WORKDIR}]"
+
+KEYS="KEYS"
+FILENAME="${ARTIFACT_URL}"
+# First, remove the query if present
+FILENAME="${FILENAME%%\?*}"
+# Now get the filename
+FILENAME="${FILENAME##*/}"
+# URLDecode the filename
+FILENAME="$(urldecode "${FILENAME}")"
+
+doing "Downloading the main artifact from [${ARTIFACT_URL}] ..."
+curl -fL -o "${FILENAME}" "${ARTIFACT_URL}" || fail "Failed to download the main artifact from [${ARTIFACT_URL}]"
+
+doing "Downloading the artifact's hash ..."
+curl -fL -o "${FILENAME}.${HASH}" "${ARTIFACT_URL}.${HASH}" || fail "Failed to download the hash from [${ARTIFACT_URL}.${HASH}]"
+
+# First things first: does the checksum jive?
+eyes "Checking the artifact's integrity with the hash..."
+"${HASH_EXE}" "${HASH_EXE_ARGS[@]}" "${FILENAME}.${HASH}" || fail "Failed to verify the checksum for the downloaded artifact"
+ok "Integrity verified!"
+
+# Download the artifact and the validation stuff
+if as_boolean "${KEYS_SET}" ; then
+	[ -n "${KEYS_URL}" ] || fail "The URL for the signature keys may not be empty"
+	doing "Downloading the GPG keys from [${KEYS_URL}] ..."
+	case "${KEYS_URL}" in
+		http://* | https://* ) curl -fL -o "${KEYS}" "${KEYS_URL}" || fail "Failed to download the signature keys from [${KEYS_URL}]" ;;
+		* ) cp -vf "${KEYS_URL}" "${KEYS}" || fail "Failed to copy the signature keys from [${KEYS_URL}]" ;;
+	esac
+
+	doing "Downloading the artifact's signature ..."
+	curl -fL -o "${FILENAME}.asc" "${ARTIFACT_URL}.asc" || fail "Failed to download the signature from [${ARTIFACT_URL}.asc]"
+
+	# Next ... import the GPG keys
+	doing "Importing the downloaded keys..."
+	gpg --homedir "${WORKDIR}" --import < "${KEYS}" || fail "Failed to import the GPG keys"
+	ok "Keys imported!"
+
+	# Finally, check the GPG signature
+	eyes "Verifying the artifact's authenticity as per the downloaded keys..."
+	gpg --homedir "${WORKDIR}" --auto-key-retrieve --verify "${FILENAME}.asc" "${FILENAME}" || fail "Failed to verify the GPG signature (rc=${?})"
+	ok "Authenticity verified!"
+fi
+
+TARGET="${TARGET_DIR}/${TARGET_NAME:-${FILENAME}}"
+
+# Ok ... we're good! Now copy the artifact to wherever it's supposed to go!
+ln "${FILENAME}" "${TARGET}" || cp -vf "${FILENAME}" "${TARGET}" || fail "Failed to hard-link or copy the downloaded artifact from [${ARTIFACT_URL}] into the target location at [${TARGET}]"
+ok "Downloaded and verified [${ARTIFACT_URL}] into [${TARGET}]"
