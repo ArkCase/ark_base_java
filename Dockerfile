@@ -24,6 +24,10 @@ ARG JMX_VER="1.5.0"
 # ARG JMX_KEYS="https://populate-this-when-we-can"
 ARG JMX_SRC="https://github.com/prometheus/jmx_exporter/releases/download/${JMX_VER}/jmx_prometheus_javaagent-${JMX_VER}.jar"
 
+ARG CW_VER="1.8.0"
+ARG CW_SRC="com.armedia.acm:curator-wrapper:${CW_VER}:jar:exe"
+ARG CW_REPO="https://nexus.armedia.com/repository/arkcase"
+
 ARG BC_GROUP="org.bouncycastle"
 
 ARG BC_PKIX_GROUP="${BC_GROUP}"
@@ -62,6 +66,8 @@ ARG OS
 ARG VER
 ARG JMX_KEYS
 ARG JMX_SRC
+ARG CW_SRC
+ARG CW_REPO
 ARG BC_PKIX
 ARG BC_PKIX_SRC
 ARG BC_PROV
@@ -135,6 +141,8 @@ ENV JMX_AGENT_ARG="-javaagent:${JMX_AGENT_JAR}=9100:${JMX_AGENT_CONF}"
 COPY --chown=root:root --chmod=0755 jmx-prometheus-agent.yaml "${CONF_DIR}"
 RUN mkdir -p "${LIB_DIR}" && \
     verified-download --hash "sha256" "${JMX_SRC}" "${JMX_AGENT_JAR}"
+
+RUN mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar"
 
 #
 # Add the BouncyCastle FIPS stuff
