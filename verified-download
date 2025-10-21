@@ -116,19 +116,39 @@ ok "Integrity verified!"
 # Download the artifact and the validation stuff
 if as_boolean "${KEYS_SET}" ; then
 	[ -n "${KEYS_URL}" ] || fail "The URL for the signature keys may not be empty"
-	doing "Downloading the GPG keys from [${KEYS_URL}] ..."
+
 	case "${KEYS_URL}" in
-		http://* | https://* ) curl -fL -o "${KEYS}" "${KEYS_URL}" || fail "Failed to download the signature keys from [${KEYS_URL}]" ;;
+		http://* | https://* )
+			;;
+
+	esac
+
+	case "${KEYS_URL}" in
+		http://* | https://* )
+			doing "Downloading the GPG keys from [${KEYS_URL}] ..."
+			curl -fL -o "${KEYS}" "${KEYS_URL}" || fail "Failed to download the signature keys from [${KEYS_URL}]"
+
+			# Next ... import the GPG keys
+			doing "Importing the downloaded keys..."
+			gpg --homedir "${WORKDIR}" --import < "${KEYS}" || fail "Failed to import the GPG keys"
+			ok "Keys imported!"
+			;;
+
+		hkps://* )
+			[[ "${KEYS_URL}" =~ ^hkps://([^/]*)/([0-9a-fA-F]+)$ ]] || fail "Invalid HKPS URL format"
+			KEY_SERVER="${BASH_REMATCH[1],,}"
+			KEY_ID="${BASH_REMATCH[2]^^}"
+			[ -n "${KEY_SERVER}" ] || KEY_SERVER="pgp.mit.edu"
+			is_valid_hostname "${KEY_SERVER}" || fail "Invalid key server name [${KEY_SERVER}] from [${KEYS_URL}]"
+			doing "Importing the GPG key ${KEY_ID} from [${KEY_SERVER}] ..."
+			( execute gpg --homedir "${WORKDIR}" --keyserver "hkps://${KEY_SERVER}" --recv-keys "${KEY_ID}" ) || fail "Failed to download the key from ${KEYS_URL}"
+			;;
+
 		* ) cp -vf "${KEYS_URL}" "${KEYS}" || fail "Failed to copy the signature keys from [${KEYS_URL}]" ;;
 	esac
 
 	doing "Downloading the artifact's signature ..."
 	curl -fL -o "${FILENAME}.asc" "${ARTIFACT_URL}.asc" || fail "Failed to download the signature from [${ARTIFACT_URL}.asc]"
-
-	# Next ... import the GPG keys
-	doing "Importing the downloaded keys..."
-	gpg --homedir "${WORKDIR}" --import < "${KEYS}" || fail "Failed to import the GPG keys"
-	ok "Keys imported!"
 
 	# Finally, check the GPG signature
 	eyes "Verifying the artifact's authenticity as per the downloaded keys..."
