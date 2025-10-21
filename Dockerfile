@@ -21,7 +21,7 @@ ARG OS="linux"
 ARG VER="22.04"
 
 ARG JMX_VER="1.5.0"
-# ARG JMX_KEYS="https://populate-this-when-we-can"
+ARG JMX_KEYS="hkps://keys.openpgp.org/90E3CDDECF99D81C0309D74CCADDBDF51122242E"
 ARG JMX_SRC="https://github.com/prometheus/jmx_exporter/releases/download/${JMX_VER}/jmx_prometheus_javaagent-${JMX_VER}.jar"
 
 ARG CW_VER="1.8.0"
@@ -140,7 +140,7 @@ ENV JMX_AGENT_ARG="-javaagent:${JMX_AGENT_JAR}=9100:${JMX_AGENT_CONF}"
 
 COPY --chown=root:root --chmod=0755 jmx-prometheus-agent.yaml "${CONF_DIR}"
 RUN mkdir -p "${LIB_DIR}" && \
-    verified-download --hash "sha256" "${JMX_SRC}" "${JMX_AGENT_JAR}"
+    verified-download --hash "sha256" --keys "${JMX_KEYS}" "${JMX_SRC}" "${JMX_AGENT_JAR}"
 
 RUN mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar"
 
