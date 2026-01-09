@@ -17,18 +17,19 @@ urldecode()
 usage()
 {
 	[ ${#} -gt 0 ] && err "${@}"
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ --keys keys-url ] [ --hash hash ] artifact-url [ target ]"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ --keys keys-url ] [ --hash hash | --no-hash ] artifact-url [ target ]"
 	exit 1
 }
 
 set_or_default HASH "sha512"
 set_or_default KEYS_URL
 
-ARGS="$(getopt -o "h?" -l "help,keys:,hash:" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}" 2>/dev/null)" || usage
+ARGS="$(getopt -o "h?" -l "help,keys:,hash:,no-hash" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}" 2>/dev/null)" || usage
 eval set -- "${ARGS}"
 
 KEYS_SET="false"
 HASH_SET="false"
+NO_HASH="false"
 
 while true ; do
 	case "${1}" in
@@ -43,7 +44,13 @@ while true ; do
 			as_boolean "${HASH_SET}" && fail "You may specify ${1} only once"
 			HASH_SET="true"
 			HASH="${2}"
+			[ -n "${HASH}" ] || fail "The hash name may not be empty"
 			shift 2
+			;;
+
+		--no-hash )
+			NO_HASH="true"
+			shift
 			;;
 
 		--help | -h ) usage ;;
@@ -99,7 +106,7 @@ FILENAME="$(urldecode "${FILENAME}")"
 doing "Downloading the main artifact from [${ARTIFACT_URL}] ..."
 curl -fL -o "${FILENAME}" "${ARTIFACT_URL}" || fail "Failed to download the main artifact from [${ARTIFACT_URL}]"
 
-if [ -n "${HASH}" ] ; then
+if ! as_boolean "${NO_HASH}" ; then
 	set_or_default HASH_EXE "${HASH}sum"
 	set_or_default HASH_EXE_ARGS "-c"
 
