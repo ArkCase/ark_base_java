@@ -79,12 +79,6 @@ else
 	TARGET_NAME="$(basename "${TARGET}")"
 fi
 
-set_or_default HASH_EXE "${HASH}sum"
-set_or_default HASH_EXE_ARGS "-c"
-
-type -P "${HASH_EXE}" &>/dev/null || fail "Could not find the checksum checker [${HASH_EXE}] in the path"
-to_array HASH_EXE_ARGS
-
 TARGET_DIR="$(readlink -f "${TARGET_DIR}")" || fail "Failed to identify the true target directory for [${TARGET}]"
 mkdir -p "${TARGET_DIR}" || fail "Failed to create the target directory at [${TARGET_DIR}] (rc=${?})"
 
@@ -105,13 +99,22 @@ FILENAME="$(urldecode "${FILENAME}")"
 doing "Downloading the main artifact from [${ARTIFACT_URL}] ..."
 curl -fL -o "${FILENAME}" "${ARTIFACT_URL}" || fail "Failed to download the main artifact from [${ARTIFACT_URL}]"
 
-doing "Downloading the artifact's hash ..."
-curl -fL -o "${FILENAME}.${HASH}" "${ARTIFACT_URL}.${HASH}" || fail "Failed to download the hash from [${ARTIFACT_URL}.${HASH}]"
+if [ -n "${HASH}" ] ; then
+	set_or_default HASH_EXE "${HASH}sum"
+	set_or_default HASH_EXE_ARGS "-c"
 
-# First things first: does the checksum jive?
-eyes "Checking the artifact's integrity with the hash..."
-"${HASH_EXE}" "${HASH_EXE_ARGS[@]}" "${FILENAME}.${HASH}" || fail "Failed to verify the checksum for the downloaded artifact"
-ok "Integrity verified!"
+	type -P "${HASH_EXE}" &>/dev/null || fail "Could not find the checksum checker [${HASH_EXE}] in the path"
+	to_array HASH_EXE_ARGS
+	doing "Downloading the artifact's hash ..."
+	curl -fL -o "${FILENAME}.${HASH}" "${ARTIFACT_URL}.${HASH}" || fail "Failed to download the hash from [${ARTIFACT_URL}.${HASH}]"
+
+	# First things first: does the checksum jive?
+	eyes "Checking the artifact's integrity with the hash..."
+	"${HASH_EXE}" "${HASH_EXE_ARGS[@]}" "${FILENAME}.${HASH}" || fail "Failed to verify the checksum for the downloaded artifact"
+	ok "Integrity verified!"
+else
+	warn "No hash check performed!"
+fi
 
 # Download the artifact and the validation stuff
 if as_boolean "${KEYS_SET}" ; then
