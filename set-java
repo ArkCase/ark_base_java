@@ -42,13 +42,8 @@ usage()
 [ ${#} -eq 0 ] && [ -v ALT_JAVA ] && [ -n "${ALT_JAVA}" ] && set -- "${ALT_JAVA}"
 
 # If we're not being asked to set a Java version, we simply
-# output the current one by parsing the output of the
-# java -fullversion command
-if [ ${#} -ne 1 ] ; then
-	OUT="$(java -fullversion 2>&1)" || fail "Unable to determine the current Java version"
-	echo "${OUT}" | sed -e 's;^[^"]*";;g' -e 's;[.].*$;;g'
-	exit 0
-fi
+# output the current one
+[ ${#} -ne 1 ] && exec get-java
 
 [ -n "${1}" ] || usage
 

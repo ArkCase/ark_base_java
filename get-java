@@ -3,6 +3,11 @@
 set -euo pipefail
 . /.functions
 
-OUT="$(java -fullversion 2>&1)" || fail "Unable to determine the current Java version (rc=${?}): ${OUT}"
-echo "${OUT}" | sed -e 's;^[^"]*";;g' -e 's;[.].*$;;g'
+JAVA="$(type -P java)" || fail "Java is not on the PATH"
+
+VARS=()
+[ -v JAVA_HOME ] && VARS+=( "JAVA_HOME=${JAVA_HOME}" )
+
+OUT="$(env -i "${VARS[@]}" "${JAVA}" -fullversion 2>&1)" || fail "Unable to determine the current Java version (rc=${?}): ${OUT}"
+echo "${OUT}" | grep '"' | sed -e 's;^[^"]*";;g' -e 's;[.].*$;;g'
 exit 0
