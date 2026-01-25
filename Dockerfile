@@ -24,7 +24,7 @@ ARG JMX_VER="1.5.0"
 ARG JMX_KEYS="hkps://keys.openpgp.org/90E3CDDECF99D81C0309D74CCADDBDF51122242E"
 ARG JMX_SRC="https://github.com/prometheus/jmx_exporter/releases/download/${JMX_VER}/jmx_prometheus_javaagent-${JMX_VER}.jar"
 
-ARG CW_VER="1.8.0"
+ARG CW_VER="1.8.1"
 ARG CW_SRC="com.armedia.acm:curator-wrapper:${CW_VER}:jar:exe"
 ARG CW_REPO="https://nexus.armedia.com/repository/arkcase"
 
