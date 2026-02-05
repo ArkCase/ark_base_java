@@ -27,7 +27,7 @@
 
 
 
-find -P /var/log/  -perm /u+xs,g+xws,o+xwrt \! -name 'history.log*' \! -name 'eipp.log.xz*' \! -name '[bw]tmp' \! -name '[bw]tmp.*' \! -name '[bw]tmp-*' \! -name 'lastlog' \! -name 'lastlog.*' -type f -regextype posix-extended -regex '.*' -exec chmod u-xs,g-xws,o-xwrt {} \;
+
+find -P /var/log/  -perm /u+xs,g+xws,o+xwrt \! -name 'history.log*' \! -name 'eipp.log.xz*' \! -name '[bw]tmp' \! -name '[bw]tmp.*' \! -name '[bw]tmp-*' \! -name 'lastlog' \! -name 'lastlog.*' \! -name 'cloud-init.log*' \! -name 'localmessages*' \! -name 'waagent.log*' -type f -regextype posix-extended -regex '.*' -exec chmod u-xs,g-xws,o-xwrt {} \;
 
 ) # END fix for 'xccdf_org.ssgproject.content_rule_permissions_local_var_log'
-
