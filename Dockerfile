@@ -15,8 +15,8 @@
 #
 # Basic Parameters
 #
-ARG PUBLIC_REGISTRY="public.ecr.aws"
 ARG FIPS=""
+ARG PUBLIC_REGISTRY="public.ecr.aws"
 ARG ARCH="amd64"
 ARG OS="linux"
 ARG VER="24.04"
