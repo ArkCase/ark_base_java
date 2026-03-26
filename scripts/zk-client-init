@@ -1,0 +1,51 @@
+#!/bin/bash
+
+. /.functions
+
+#
+# Set the minimum expected return values
+#
+export ZOOKEEPER_SSL="false"
+export ZOOKEEPER_SSL_CLIENT_OPTIONS=""
+
+#
+# If the SSL stuff is enabled, we use it!
+#
+init_ssl || return 0
+
+#
+# All the SSL stuff is ready!
+#
+export ZOOKEEPER_SSL="true"
+
+export ZOOKEEPER_HOSTNAME_VERIFICATION="true"
+export ZOOKEEPER_PROTOCOL="TLSv1.3"
+export ZOOKEEPER_ENABLED_PROTOCOLS="${ZOOKEEPER_PROTOCOL}"
+
+ZOOKEEPER_SSL_COMMON_OPTS=(
+
+	-Dzookeeper.ssl.hostnameVerification="${ZOOKEEPER_HOSTNAME_VERIFICATION}"
+	-Dzookeeper.ssl.protocol="${ZOOKEEPER_PROTOCOL}"
+	-Dzookeeper.ssl.enabledProtocols="${ZOOKEEPER_ENABLED_PROTOCOLS}"
+
+	-Dzookeeper.ssl.keyStore.location="${JAVA_KEYSTORE}"
+	-Dzookeeper.ssl.keyStore.passwordPath="${JAVA_KEYSTORE_PASSWORD_FILE}"
+	-Dzookeeper.ssl.keyStore.type="${JAVA_KEYSTORE_TYPE}"
+
+	-Dzookeeper.ssl.trustStore.location="${JAVA_TRUSTSTORE}"
+	-Dzookeeper.ssl.trustStore.passwordPath="${JAVA_TRUSTSTORE_PASSWORD_FILE}"
+	-Dzookeeper.ssl.trustStore.type="${JAVA_TRUSTSTORE_TYPE}"
+)
+export ZOOKEEPER_SSL_COMMON_OPTIONS="${ZOOKEEPER_SSL_COMMON_OPTS[@]}"
+unset ZOOKEEPER_SSL_COMMON_OPTS
+
+ZOOKEEPER_SSL_CLIENT_OPTS=(
+	-Dzookeeper.clientCnxnSocket="org.apache.zookeeper.ClientCnxnSocketNetty"
+	-Dzookeeper.client.secure="${ZOOKEEPER_SSL}"
+)
+export ZOOKEEPER_SSL_CLIENT_OPTIONS="${ZOOKEEPER_SSL_CLIENT_OPTS[@]} ${ZOOKEEPER_SSL_COMMON_OPTIONS}"
+unset ZOOKEEPER_SSL_CLIENT_OPTS
+
+#
+# Done!
+#
