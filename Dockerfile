@@ -151,7 +151,7 @@ RUN mkdir -p "${LIB_DIR}" && \
 RUN mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar"
 
 #
-# Add the BouncyCastle FIPS stuff
+# Add the BouncyCastle FIPS stuff, but only if FIPS is enabled
 #
 ENV CRYPTO_DIR="${BASE_DIR}/crypto"
 ENV BC_DIR="${CRYPTO_DIR}/bc"
@@ -159,7 +159,8 @@ ENV BC_PKIX_JAR="${BC_DIR}/${BC_PKIX}-${BC_PKIX_VER}.jar"
 ENV BC_PROV_JAR="${BC_DIR}/${BC_PROV}-${BC_PROV_VER}.jar"
 ENV BC_TLS_JAR="${BC_DIR}/${BC_TLS}-${BC_TLS_VER}.jar"
 ENV BC_UTIL_JAR="${BC_DIR}/${BC_UTIL}-${BC_UTIL_VER}.jar"
-RUN mkdir -p "${CRYPTO_DIR}" && \
+RUN test -n "${FIPS}" || exit 0 ; \
+    mkdir -p "${CRYPTO_DIR}" && \
     mvn-get "${BC_PKIX_SRC}" "${BC_PKIX_JAR}" && \
     mvn-get "${BC_PROV_SRC}" "${BC_PROV_JAR}" && \
     mvn-get "${BC_TLS_SRC}" "${BC_TLS_JAR}" && \
