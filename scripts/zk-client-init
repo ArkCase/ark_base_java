@@ -42,10 +42,13 @@ ZOOKEEPER_SSL_COMMON_OPTS=(
 export ZOOKEEPER_SSL_COMMON_OPTIONS="${ZOOKEEPER_SSL_COMMON_OPTS[@]}"
 unset ZOOKEEPER_SSL_COMMON_OPTS
 
+
 ZOOKEEPER_SSL_CLIENT_OPTS=(
 	-Dzookeeper.clientCnxnSocket="org.apache.zookeeper.ClientCnxnSocketNetty"
 	-Dzookeeper.client.secure="${ZOOKEEPER_SSL}"
 )
+is_fips && SASL="false" || SASL="true"
+ZOOKEEPER_SSL_CLIENT_OPTS+=( -Dzookeeper.sasl.client="${SASL}" )
 export ZOOKEEPER_SSL_CLIENT_OPTIONS="${ZOOKEEPER_SSL_CLIENT_OPTS[@]} ${ZOOKEEPER_SSL_COMMON_OPTIONS}"
 unset ZOOKEEPER_SSL_CLIENT_OPTS
 
