@@ -166,6 +166,10 @@ RUN test -n "${FIPS}" || exit 0 ; \
     mvn-get "${BC_TLS_SRC}" "${BC_TLS_JAR}" && \
     mvn-get "${BC_UTIL_SRC}" "${BC_UTIL_JAR}"
 
+RUN --mount=type=bind,target=/java.security,source=java.security \
+    test -n "${FIPS}" || exit 0 ; \
+    tar -C /java.security --owner=0 --group=0 --no-same-owner --no-same-permissions -cf - . | tar -C / --no-overwrite-dir -xvf -
+
 #
 # Default to Java 11 (Amazon Coretto), for now
 #

@@ -1,0 +1,61 @@
+#!/bin/bash
+
+set -euo pipefail
+. /.functions
+
+[ -n "${FIPS}" ] || quit "FIPS not active"
+[ $(id -u) -eq 0 ] || fail "This script must run as root"
+
+set_or_default CRYPTO_DEPLOY_MARKER "${CRYPTO_DIR}/.deployment"
+set_or_default APP_LIB_DIRS
+
+[ -n "${APP_LIB_DIRS}" ] || quit "No APP_LIB_DIRS defined, nowhere to deploy to"S
+
+is_file "${CRYPTO_DEPLOY_MARKER}" && quit "The crypto libraries have already been deployed (${CRYPTO_DEPLOY_MARKER})"
+
+list_unique_dirs()
+{
+	local LIST="${1}"
+	local RESULT=""
+	local OUT=""
+	while read DIR ; do
+		[ -n "${DIR}" ] || continue
+		is_dir_writable "${DIR}" || { echo "The target directory [${DIR}] is not writable" ; return 1 ; }
+		OUT="$(readlink -f "${DIR}" 2>&1)" || { echo "Failed to canonicalize the directory [${DIR}] (rc=${?}): ${OUT}" ; return 1 ; }
+		RESULT+="\n${OUT}"
+	done < <(echo "${LIST}" | tr ':' '\n' | sort -u | sed -e '/^\s*$/d')
+	[ -n "${RESULT}" ] && echo -e "${RESULT}" | sort -u | sed -e '/^\s*$/d'
+	return 0
+}
+
+TARGETS="$(list_unique_dirs "${APP_LIB_DIRS}" 2>&1)" || fail "Failed to canonicalize the directory list (rc=${?}): ${TARGETS}"
+readarray -t TARGETS < <(echo -n "${TARGETS}")
+[ ${#TARGETS[@]} -gt 0 ] || quit "The APP_LIB_DIRS list resolved to an empty list, will not deploy"
+
+#
+# This function lets us try to do the copy in several ways
+#
+do_copy()
+{
+	local TGT="${1}"
+	cd "${BC_DIR}" || return 1
+	echo "Creating hard links..."
+	ln -vf * "${TGT}" && return 0
+	echo "Trying a copy..."
+	cp -vf * "${TGT}" && return 0
+	echo "Both links and copy failed!"
+	return 2
+}
+
+eyes "Deploying the crypto libraries to the configured ${#TARGETS[@]} library directories"
+DEPLOYED_DIRS=""
+for TARGET in "${TARGETS[@]}" ; do
+	OUT="$(do_copy "${TARGET}" 2>&1)" || fail "Failed to deploy the crypto Jars into [${TARGET}] (rc=${?}): ${OUT}"
+	ok "Deployed the crypto Jars into [${TARGET}]"
+	[ -n "${DEPLOYED_DIRS}" ] && DEPLOYED_DIRS+=":"
+	DEPLOYED_DIRS+="${TARGET}"
+done
+
+OUT="$(say "${DEPLOYED_DIRS}" > "${CRYPTO_DEPLOY_MARKER}")" || warn "Failed to create the crypto deployment marker (rc=${?})"
+ok "Crypto libraries deployed!"
+exit 0
