@@ -6,12 +6,12 @@ set -euo pipefail
 [ -n "${FIPS}" ] || quit "FIPS not active"
 [ $(id -u) -eq 0 ] || fail "This script must run as root"
 
-set_or_default CRYPTO_DEPLOY_MARKER "${CRYPTO_DIR}/.deployment"
+set_or_default FIPS_DEPLOY_MARKER "${FIPS_DIR}/.deployment"
 set_or_default APP_LIB_DIRS
 
 [ -n "${APP_LIB_DIRS}" ] || quit "No APP_LIB_DIRS defined, nowhere to deploy to"S
 
-is_file "${CRYPTO_DEPLOY_MARKER}" && quit "The crypto libraries have already been deployed (${CRYPTO_DEPLOY_MARKER})"
+is_file "${FIPS_DEPLOY_MARKER}" && quit "The crypto libraries have already been deployed (${FIPS_DEPLOY_MARKER})"
 
 list_unique_dirs()
 {
@@ -56,6 +56,6 @@ for TARGET in "${TARGETS[@]}" ; do
 	DEPLOYED_DIRS+="${TARGET}"
 done
 
-OUT="$(say "${DEPLOYED_DIRS}" > "${CRYPTO_DEPLOY_MARKER}")" || warn "Failed to create the crypto deployment marker (rc=${?})"
+OUT="$(say "${DEPLOYED_DIRS}" > "${FIPS_DEPLOY_MARKER}")" || warn "Failed to create the crypto deployment marker (rc=${?})"
 ok "Crypto libraries deployed!"
 exit 0
