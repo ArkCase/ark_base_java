@@ -3,7 +3,6 @@
 set -euo pipefail
 . /.functions
 
-[ -n "${FIPS}" ] || quit "FIPS not active"
 [ $(id -u) -eq 0 ] || fail "This script must run as root"
 
 set_or_default FIPS_DEPLOY_MARKER "${FIPS_DIR}/.deployment"
