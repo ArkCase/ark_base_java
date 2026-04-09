@@ -38,7 +38,7 @@ readarray -t TARGETS < <(echo -n "${TARGETS}")
 do_copy()
 {
 	local TGT="${1}"
-	cd "${CRYPTO_DIR}" || return 1
+	cd "${FIPS_DIR}" || return 1
 	echo "Creating hard links..."
 	ln -vf * "${TGT}" && return 0
 	echo "Trying a copy..."
