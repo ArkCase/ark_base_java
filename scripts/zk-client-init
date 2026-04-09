@@ -18,7 +18,7 @@ init_ssl || return 0
 #
 export ZOOKEEPER_SSL="true"
 
-as_boolean "${FIPS}" && ZOOKEEPER_HOSTNAME_VERIFICATION="false" || ZOOKEEPER_HOSTNAME_VERIFICATION="true"
+is_fips && ZOOKEEPER_HOSTNAME_VERIFICATION="false" || ZOOKEEPER_HOSTNAME_VERIFICATION="true"
 export ZOOKEEPER_HOSTNAME_VERIFICATION
 
 export ZOOKEEPER_PROTOCOL="TLSv1.3"
@@ -42,13 +42,11 @@ ZOOKEEPER_SSL_COMMON_OPTS=(
 export ZOOKEEPER_SSL_COMMON_OPTIONS="${ZOOKEEPER_SSL_COMMON_OPTS[@]}"
 unset ZOOKEEPER_SSL_COMMON_OPTS
 
-
 ZOOKEEPER_SSL_CLIENT_OPTS=(
 	-Dzookeeper.clientCnxnSocket="org.apache.zookeeper.ClientCnxnSocketNetty"
-	-Dzookeeper.client.secure="${ZOOKEEPER_SSL}"
+	-Dzookeeper.client.secure="true"
+	-Dzookeeper.sasl.client="false"
 )
-is_fips && SASL="false" || SASL="true"
-ZOOKEEPER_SSL_CLIENT_OPTS+=( -Dzookeeper.sasl.client="${SASL}" )
 export ZOOKEEPER_SSL_CLIENT_OPTIONS="${ZOOKEEPER_SSL_CLIENT_OPTS[@]} ${ZOOKEEPER_SSL_COMMON_OPTIONS}"
 unset ZOOKEEPER_SSL_CLIENT_OPTS
 
