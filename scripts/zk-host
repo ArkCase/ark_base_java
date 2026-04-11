@@ -45,10 +45,14 @@ fi
 # Parse the result and produce the final value for ZK_HOST!
 #
 ZK_HOST=""
+export ZK_HOST_ARR=()
 while read PRIORITY WEIGHT PORT TARGET ; do
 	[ -n "${ZK_HOST}" ] && ZK_HOST+=","
-	ZK_HOST+="${TARGET}:${PORT}"
+	CURRENT="${TARGET}:${PORT}"
+	ZK_HOST+="${CURRENT}"
+	ZK_HOST_ARR+=( "${CURRENT}" )
 done < <(echo -n "${DNS_RESULT}" | sort -k 4)
+unset CURRENT
 
 #
 # A little cleanup
