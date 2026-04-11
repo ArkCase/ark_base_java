@@ -165,6 +165,7 @@ RUN mkdir -p "${FIPS_DIR}" && \
 
 RUN --mount=type=bind,target=/java.security,source=java.security \
     tar -C /java.security --owner=0 --group=0 --no-same-owner --no-same-permissions -cf - . | tar -C / --no-overwrite-dir -xvf -
+COPY --chown=root:root --chmod=0444 bc-fips.policy "${FIPS_DIR}/.bc-fips.policy"
 
 #
 # Default to Java 11 (Amazon Coretto), for now

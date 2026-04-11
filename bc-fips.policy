@@ -1,0 +1,30 @@
+//
+// This system policy file grants the permissions required for the BouncyCastle
+// FIPS libraries to operate properly
+//
+
+grant {
+    // allow self-integrity checking
+    permission java.lang.RuntimePermission "getProtectionDomain";
+
+    // allow checking configuration properties from the policy permission
+    permission java.util.PropertyPermission "java.runtime.name", "read";
+
+    // allow reflection
+    permission java.lang.RuntimePermission "accessDeclaredMembers";
+
+    // allow dynamic loading
+    permission java.security.SecurityPermission "putProviderProperty.BCFIPS";
+    permission java.security.SecurityPermission "insertProvider";
+
+    // set the default crypto random
+    permission org.bouncycastle.crypto.CryptoServicesPermission "defaultRandomConfig";
+
+    // read all properties from bouncycastle (I'd like to narrow this down)
+    permission java.security.SecurityPermission "getProperty.org.bouncycastle.*";
+
+    // Allow key export ... b/c apparently Jetty requires this :(
+    permission org.bouncycastle.crypto.CryptoServicesPermission "exportSecretKey";
+    permission org.bouncycastle.crypto.CryptoServicesPermission "exportPrivateKey";
+    permission org.bouncycastle.crypto.CryptoServicesPermission "exportKeys";
+};
