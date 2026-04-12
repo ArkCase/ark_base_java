@@ -153,19 +153,17 @@ RUN mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar"
 # Add the BouncyCastle FIPS stuff, but only if FIPS is enabled
 #
 ENV FIPS_DIR="${BASE_DIR}/fips"
-ENV BC_PKIX_JAR="${FIPS_DIR}/${BC_PKIX}-${BC_PKIX_VER}.jar"
-ENV BC_PROV_JAR="${FIPS_DIR}/${BC_PROV}-${BC_PROV_VER}.jar"
-ENV BC_TLS_JAR="${FIPS_DIR}/${BC_TLS}-${BC_TLS_VER}.jar"
-ENV BC_UTIL_JAR="${FIPS_DIR}/${BC_UTIL}-${BC_UTIL_VER}.jar"
-RUN mkdir -p "${FIPS_DIR}" && \
-    mvn-get "${BC_PKIX_SRC}" "${BC_PKIX_JAR}" && \
-    mvn-get "${BC_PROV_SRC}" "${BC_PROV_JAR}" && \
-    mvn-get "${BC_TLS_SRC}" "${BC_TLS_JAR}" && \
-    mvn-get "${BC_UTIL_SRC}" "${BC_UTIL_JAR}"
-
-RUN --mount=type=bind,target=/java.security,source=java.security \
-    tar -C /java.security --owner=0 --group=0 --no-same-owner --no-same-permissions -cf - . | tar -C / --no-overwrite-dir -xvf -
-COPY --chown=root:root --chmod=0444 bc-fips.policy "${FIPS_DIR}/.bc-fips.policy"
+RUN --mount=type=bind,target=/policies,source=policies \
+    mkdir -p "${FIPS_DIR}" && \
+    mvn-get "${BC_PKIX_SRC}" "${FIPS_DIR}" && \
+    mvn-get "${BC_PROV_SRC}" "${FIPS_DIR}" && \
+    mvn-get "${BC_TLS_SRC}" "${FIPS_DIR}" && \
+    mvn-get "${BC_UTIL_SRC}" "${FIPS_DIR}" && \
+    tar -C /policies/java.security --owner=0 --group=0 --no-same-owner --no-same-permissions -cf - . | tar -C / --no-overwrite-dir -xvf - && \
+    export BC_FIPS="${FIPS_DIR}/.bc-fips.policy" && \
+    cp -vf /policies/bc-fips.policy "${BC_FIPS}" && \
+    chown root:root "${BC_FIPS}" && \
+    chmod a=r "${BC_FIPS}"
 
 #
 # Default to Java 11 (Amazon Coretto), for now
