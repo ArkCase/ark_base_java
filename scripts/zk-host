@@ -63,7 +63,7 @@ if [ -n "${ZK_CHROOT}" ] ; then
 	# - remove trailing slashes
 	# - remove leading slashes
 	# - re-add ONE leading slash
-	ZK_CHROOT="$(echo -n "${ZK_ROOT}" | sed -e 's;/\+;/;g' -e 's;/$;;g' -e 's;^/;;g' -e 's;^;/;g')"
+	ZK_CHROOT="$(echo -n "${ZK_CHROOT}" | sed -e 's;/\+;/;g' -e 's;/$;;g' -e 's;^/;;g' -e 's;^;/;g')"
 	# Last validation: if the final path is "/",
 	# then we don't append it to ZK_HOST
 	[ "${ZK_CHROOT}" == "/" ] || ZK_HOST+="${ZK_CHROOT}"
