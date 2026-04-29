@@ -44,6 +44,9 @@ fi
 #
 # Parse the result and produce the final value for ZK_HOST!
 #
+# But first... preserve any chroot info!
+[[ "${ZK_HOST}" =~ (/.*)$ ]] && ZK_CHROOT="${BASH_REMATCH[1]}" || ZK_CHROOT=""
+
 ZK_HOST=""
 export ZK_HOST_ARR=()
 while read PRIORITY WEIGHT PORT TARGET ; do
@@ -54,10 +57,22 @@ while read PRIORITY WEIGHT PORT TARGET ; do
 done < <(echo -n "${DNS_RESULT}" | sort -k 4)
 unset CURRENT
 
+if [ -n "${ZK_CHROOT}" ] ; then
+	# This should sanitize the path:
+	# - remove repeat slashes
+	# - remove trailing slashes
+	# - remove leading slashes
+	# - re-add ONE leading slash
+	ZK_CHROOT="$(echo -n "${ZK_ROOT}" | sed -e 's;/\+;/;g' -e 's;/$;;g' -e 's;^/;;g' -e 's;^;/;g')"
+	# Last validation: if the final path is "/",
+	# then we don't append it to ZK_HOST
+	[ "${ZK_CHROOT}" == "/" ] || ZK_HOST+="${ZK_CHROOT}"
+fi
+
 #
 # A little cleanup
 #
-unset QUERY_SERVICE CLUSTER_DOMAIN DNS_RESULT PRIORITY WEIGHT PORT TARGET
+unset QUERY_SERVICE CLUSTER_DOMAIN DNS_RESULT PRIORITY WEIGHT PORT TARGET ZK_CHROOT
 
 #
 # Define our return values!
