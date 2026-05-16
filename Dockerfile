@@ -15,6 +15,7 @@
 #
 # Basic Parameters
 #
+ARG FIPS=""
 ARG PUBLIC_REGISTRY="public.ecr.aws"
 ARG ARCH="amd64"
 ARG OS="linux"
@@ -24,7 +25,7 @@ ARG JMX_VER="1.5.0"
 ARG JMX_KEYS="hkps://keys.openpgp.org/90E3CDDECF99D81C0309D74CCADDBDF51122242E"
 ARG JMX_SRC="https://github.com/prometheus/jmx_exporter/releases/download/${JMX_VER}/jmx_prometheus_javaagent-${JMX_VER}.jar"
 
-ARG CW_VER="1.8.2"
+ARG CW_VER="1.9.2"
 ARG CW_SRC="com.armedia.acm:curator-wrapper:${CW_VER}:jar:exe"
 ARG CW_REPO="https://nexus.armedia.com/repository/arkcase"
 
@@ -54,7 +55,7 @@ ARG BASE_REGISTRY="${PUBLIC_REGISTRY}"
 ARG BASE_REPO="arkcase/base"
 ARG BASE_VER="${VER}"
 ARG BASE_VER_PFX=""
-ARG BASE_IMG="${BASE_REGISTRY}/${BASE_REPO}:${BASE_VER_PFX}${BASE_VER}"
+ARG BASE_IMG="${BASE_REGISTRY}/${BASE_REPO}${FIPS}:${BASE_VER_PFX}${BASE_VER}"
 
 FROM "${BASE_IMG}"
 
@@ -69,12 +70,16 @@ ARG JMX_SRC
 ARG CW_SRC
 ARG CW_REPO
 ARG BC_PKIX
+ARG BC_PKIX_VER
 ARG BC_PKIX_SRC
 ARG BC_PROV
+ARG BC_PROV_VER
 ARG BC_PROV_SRC
 ARG BC_TLS
+ARG BC_TLS_VER
 ARG BC_TLS_SRC
 ARG BC_UTIL
+ARG BC_UTIL_VER
 ARG BC_UTIL_SRC
 
 LABEL ORG="ArkCase LLC" \
@@ -126,7 +131,7 @@ ENV JRE_HOME="/usr/lib/jvm/jre"
 #
 # Add the JVM selector script
 #
-COPY --chown=root:root --chmod=0755 set-java set-java.* get-java fix-jars verified-download /usr/local/bin
+COPY --chown=root:root --chmod=0755 scripts/ /usr/local/bin
 COPY --chown=root:root --chmod=0640 01-set-java /etc/sudoers.d
 RUN sed -i -e "s;\${ACM_GROUP};${ACM_GROUP};g" /etc/sudoers.d/01-set-java
 
@@ -145,19 +150,20 @@ RUN mkdir -p "${LIB_DIR}" && \
 RUN mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar"
 
 #
-# Add the BouncyCastle FIPS stuff
+# Add the BouncyCastle FIPS stuff, but only if FIPS is enabled
 #
-ENV CRYPTO_DIR="${BASE_DIR}/crypto"
-ENV BC_DIR="${CRYPTO_DIR}/bc"
-ENV BC_PKIX_JAR="${BC_DIR}/${BC_PKIX}.jar"
-ENV BC_PROV_JAR="${BC_DIR}/${BC_PROV}.jar"
-ENV BC_TLS_JAR="${BC_DIR}/${BC_TLS}.jar"
-ENV BC_UTIL_JAR="${BC_DIR}/${BC_UTIL}.jar"
-RUN mkdir -p "${CRYPTO_DIR}" && \
-    mvn-get "${BC_PKIX_SRC}" "${BC_PKIX_JAR}" && \
-    mvn-get "${BC_PROV_SRC}" "${BC_PROV_JAR}" && \
-    mvn-get "${BC_TLS_SRC}" "${BC_TLS_JAR}" && \
-    mvn-get "${BC_UTIL_SRC}" "${BC_UTIL_JAR}"
+ENV FIPS_DIR="${BASE_DIR}/fips"
+RUN --mount=type=bind,target=/policies,source=policies \
+    mkdir -p "${FIPS_DIR}" && \
+    mvn-get "${BC_PKIX_SRC}" "${FIPS_DIR}" && \
+    mvn-get "${BC_PROV_SRC}" "${FIPS_DIR}" && \
+    mvn-get "${BC_TLS_SRC}" "${FIPS_DIR}" && \
+    mvn-get "${BC_UTIL_SRC}" "${FIPS_DIR}" && \
+    tar -C /policies/java.security --owner=0 --group=0 --no-same-owner --no-same-permissions -cf - . | tar -C / --no-overwrite-dir -xvf - && \
+    export BC_FIPS="${FIPS_DIR}/.bc-fips.policy" && \
+    cp -vf /policies/bc-fips.policy "${BC_FIPS}" && \
+    chown root:root "${BC_FIPS}" && \
+    chmod a=r "${BC_FIPS}"
 
 #
 # Default to Java 11 (Amazon Coretto), for now

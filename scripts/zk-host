@@ -1,0 +1,81 @@
+#!/bin/bash
+
+#
+# If the functions haven't been loaded, load them!
+#
+. /.functions
+
+#
+# Set the minimum expected return values
+#
+set_or_default ZK_HOST
+export ZK_HOST
+
+export ZK_HOST_COMPUTED="false"
+
+#
+# Compute the ZK_HOST value from DNS, if possible. If
+# not, then we fall back to whatever value was set
+# statically in the environment
+#
+QUERY_SERVICE="${ZK_QUERY_SVC:-}"
+if [ -z "${QUERY_SERVICE}" ] ; then
+	warn "No value set for ZK_QUERY_SVC - can't compute a new ZK_HOST value via DNS!"
+	return 0
+fi
+
+if ! CLUSTER_DOMAIN="$(get_cluster_domain)" ; then
+	err "Could not compute the cluster domain for ZooKeeper ZK_HOST calculation"
+	return 1
+fi
+
+# We have a domain! Use it!
+[[ "${QUERY_SERVICE}" =~ ^.*[.]$ ]] || QUERY_SERVICE+="."
+[ -n "${CLUSTER_DOMAIN}" ] && QUERY_SERVICE+="${CLUSTER_DOMAIN}."
+
+#
+# Run our DNS query!
+#
+if ! DNS_RESULT="$(dig +short -t SRV "${QUERY_SERVICE}")" ; then
+	err "Failed to execute the DNS query for ${QUERY_SERVICE}"
+	return 2
+fi
+
+#
+# Parse the result and produce the final value for ZK_HOST!
+#
+# But first... preserve any chroot info!
+[[ "${ZK_HOST}" =~ (/.*)$ ]] && ZK_CHROOT="${BASH_REMATCH[1]}" || ZK_CHROOT=""
+
+ZK_HOST=""
+export ZK_HOST_ARR=()
+while read PRIORITY WEIGHT PORT TARGET ; do
+	[ -n "${ZK_HOST}" ] && ZK_HOST+=","
+	CURRENT="${TARGET}:${PORT}"
+	ZK_HOST+="${CURRENT}"
+	ZK_HOST_ARR+=( "${CURRENT}" )
+done < <(echo -n "${DNS_RESULT}" | sort -k 4)
+unset CURRENT
+
+if [ -n "${ZK_CHROOT}" ] ; then
+	# This should sanitize the path:
+	# - remove repeat slashes
+	# - remove trailing slashes
+	# - remove leading slashes
+	# - re-add ONE leading slash
+	ZK_CHROOT="$(echo -n "${ZK_CHROOT}" | sed -e 's;/\+;/;g' -e 's;/$;;g' -e 's;^/;;g' -e 's;^;/;g')"
+	# Last validation: if the final path is "/",
+	# then we don't append it to ZK_HOST
+	[ "${ZK_CHROOT}" == "/" ] || ZK_HOST+="${ZK_CHROOT}"
+fi
+
+#
+# A little cleanup
+#
+unset QUERY_SERVICE CLUSTER_DOMAIN DNS_RESULT PRIORITY WEIGHT PORT TARGET ZK_CHROOT
+
+#
+# Define our return values!
+#
+ok "Computed ZK_HOST=${ZK_HOST@Q}"
+ZK_HOST_COMPUTED="true"
