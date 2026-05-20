@@ -171,5 +171,4 @@ RUN --mount=type=bind,target=/policies,source=policies \
 RUN /usr/local/bin/set-java 11
 
 # STIG Remediations
-COPY --chown=root:root stig/ /usr/share/stig/
-RUN cd /usr/share/stig && ./run-all
+RUN --mount=type=bind,source=stig,target=/stig run-stig /stig
