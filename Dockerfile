@@ -147,7 +147,9 @@ COPY --chown=root:root --chmod=0755 jmx-prometheus-agent.yaml "${CONF_DIR}"
 RUN mkdir -p "${LIB_DIR}" && \
     verified-download --hash "sha256" --keys "${JMX_KEYS}" "${JMX_SRC}" "${JMX_AGENT_JAR}"
 
-RUN mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar"
+RUN --mount=type=secret,id=mvn_get_auth,uid=${APP_UID},gid=${APP_GID} \
+    . /run/secrets/mvn_get_auth && \
+    mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar"
 
 #
 # Add the BouncyCastle FIPS stuff, but only if FIPS is enabled
