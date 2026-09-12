@@ -25,7 +25,7 @@ ARG JMX_VER="1.5.0"
 ARG JMX_KEYS="hkps://keys.openpgp.org/90E3CDDECF99D81C0309D74CCADDBDF51122242E"
 ARG JMX_SRC="https://github.com/prometheus/jmx_exporter/releases/download/${JMX_VER}/jmx_prometheus_javaagent-${JMX_VER}.jar"
 
-ARG CW_VER="1.9.6"
+ARG CW_VER="1.9.7"
 ARG CW_SRC="com.armedia.acm:curator-wrapper:${CW_VER}:jar:exe"
 ARG CW_REPO="https://nexus.armedia.com/repository/arkcase"
 
@@ -147,7 +147,7 @@ COPY --chown=root:root --chmod=0755 jmx-prometheus-agent.yaml "${CONF_DIR}"
 RUN mkdir -p "${LIB_DIR}" && \
     verified-download --hash "sha256" --keys "${JMX_KEYS}" "${JMX_SRC}" "${JMX_AGENT_JAR}"
 
-RUN --mount=type=secret,id=mvn_get_auth,uid=${APP_UID},gid=${APP_GID} \
+RUN --mount=type=secret,id=mvn_get_auth \
     . /run/secrets/mvn_get_auth && \
     mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar"
 
