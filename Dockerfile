@@ -109,8 +109,9 @@ RUN wget -O - https://apt.corretto.aws/corretto.key | gpg --dearmor -o /etc/apt/
 
 RUN apt-get -y install \
         java-11-amazon-corretto-jdk \
-        openjdk-17-jdk \
-        openjdk-21-jdk \
+        openjdk-17-jdk-headless \
+        openjdk-21-jdk-headless \
+        openjdk-25-jdk-headless \
       && \
     apt-get clean
 
