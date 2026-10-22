@@ -5,29 +5,61 @@ set -euo pipefail
 
 cleanup()
 {
-	[ -v WORKDIR ] && rm -rf "${WORKDIR}" &>/dev/null
-}
-
-urldecode()
-{
-	: "${*//+/ }"
-	echo -e "${_//%/\\x}"
+	[ -v WORKDIR ] || return 0
+	# Stop any GPG agents (i.e. dirmngr) that were started for our home directory
+	gpgconf --homedir "${WORKDIR}" --kill all &>/dev/null
+	rm -rf "${WORKDIR}" &>/dev/null
 }
 
 usage()
 {
 	[ ${#} -gt 0 ] && err "${@}"
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ --keys keys-url ] [ --hash hash | --no-hash ] artifact-url [ target ]"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} [ --keys keys-url | auto ] [ --signer pattern ] [ --hash hash | --no-hash ] artifact-url [ target ]"
+	echo -e ""
+	echo -e "\tThe artifact's GPG signature is verified if --keys or --signer are given. A signature"
+	echo -e "\tby any of the keys from --keys is accepted. Otherwise, the signer's key is retrieved"
+	echo -e "\tfrom the key server at GPG_KEYSERVER (default: keys.openpgp.org) or via WKD, and"
+	echo -e "\tmust have an email address that matches the (case-insensitive) extended regular"
+	echo -e "\texpression given with --signer (i.e. '@apache[.]org\$'). Without --signer, any key"
+	echo -e "\twith an email address is accepted, with a warning."
 	exit 1
+}
+
+#
+# usage: list_primary_fingerprints [KEY ...]
+#
+# List the fingerprints of the (primary) keys in our keyring
+#
+list_primary_fingerprints()
+{
+	gpg --homedir "${WORKDIR}" --with-colons --list-keys "${@}" 2>/dev/null | \
+		awk -F: '$1 == "pub" { P = 1 ; next } P && $1 == "fpr" { print $10 ; P = 0 }'
+}
+
+#
+# usage: list_emails KEY
+#
+# List the email addresses from the key's user IDs, which may be
+# either "Name <email>", or just "email"
+#
+list_emails()
+{
+	gpg --homedir "${WORKDIR}" --with-colons --list-keys "${1}" 2>/dev/null | \
+		awk -F: '$1 == "uid" { print $10 }' | \
+		sed -n -e 's;^.*<\([^<>]\+\)>.*$;\1;p' -e 't' -e '/^[^<>[:space:]]\+@[^<>[:space:]]\+$/p' | \
+		sort -u
 }
 
 set_or_default HASH "sha512"
 set_or_default KEYS_URL
+set_or_default SIGNER_PATTERN
+set_or_default GPG_KEYSERVER "hkps://keys.openpgp.org"
 
-ARGS="$(getopt -o "h?" -l "help,keys:,hash:,no-hash" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}" 2>/dev/null)" || usage
+ARGS="$(getopt -o "h?" -l "help,keys:,signer:,hash:,no-hash" -n "${BASH_ARGV0:-${BASH_SOURCE:-${0}}}" -- "${@}" 2>/dev/null)" || usage
 eval set -- "${ARGS}"
 
 KEYS_SET="false"
+SIGNER_SET="false"
 HASH_SET="false"
 NO_HASH="false"
 
@@ -37,6 +69,14 @@ while true ; do
 			as_boolean "${KEYS_SET}" && fail "You may specify ${1} only once"
 			KEYS_SET="true"
 			KEYS_URL="${2}"
+			shift 2
+			;;
+
+		--signer )
+			as_boolean "${SIGNER_SET}" && fail "You may specify ${1} only once"
+			SIGNER_SET="true"
+			SIGNER_PATTERN="${2}"
+			[ -n "${SIGNER_PATTERN}" ] || fail "The signer pattern may not be empty"
 			shift 2
 			;;
 
@@ -62,6 +102,13 @@ done
 [ ${#} -ge 1 ] || usage
 [ ${#} -le 2 ] || usage
 
+# Make sure the signer pattern (if any) is valid, so a typo can't make it fail to match everything
+if [ -n "${SIGNER_PATTERN}" ] ; then
+	RC=0
+	grep -qiE -- "${SIGNER_PATTERN}" < /dev/null &>/dev/null || RC=${?}
+	[ ${RC} -le 1 ] || fail "The signer pattern [${SIGNER_PATTERN}] is not a valid extended regular expression"
+fi
+
 ARTIFACT_URL="${1}"
 [ -n "${ARTIFACT_URL}" ] || fail "Can't use an empty artifact URL"
 
@@ -86,8 +133,8 @@ else
 	TARGET_NAME="$(basename "${TARGET}")"
 fi
 
-TARGET_DIR="$(readlink -f "${TARGET_DIR}")" || fail "Failed to identify the true target directory for [${TARGET}]"
 mkdir -p "${TARGET_DIR}" || fail "Failed to create the target directory at [${TARGET_DIR}] (rc=${?})"
+TARGET_DIR="$(readlink -f "${TARGET_DIR}")" || fail "Failed to identify the true target directory for [${TARGET}]"
 
 WORKDIR="$(mktemp --directory --tmpdir "verified-download.XXXXXXXX")"
 trap cleanup EXIT
@@ -96,12 +143,20 @@ cd "${WORKDIR}" || fail "Failed to CD into the working directory [${WORKDIR}]"
 
 KEYS="KEYS"
 FILENAME="${ARTIFACT_URL}"
-# First, remove the query if present
-FILENAME="${FILENAME%%\?*}"
+# First, remove the query and fragment if present
+FILENAME="${FILENAME%%[?#]*}"
 # Now get the filename
 FILENAME="${FILENAME##*/}"
-# URLDecode the filename
-FILENAME="$(urldecode "${FILENAME}")"
+# URLDecode the filename. A literal "+" in a URL's path is just a "+" (only queries
+# use it for spaces), so it's encoded first to keep urldecode from turning it into one
+FILENAME="$(urldecode "${FILENAME//+/%2B}")"
+# The decoded name must be a plain filename: no (encoded) slashes or backslashes, no
+# control characters (i.e. an encoded newline), and not empty, "." or ".."
+BAD_CHARS='[/\[:cntrl:]]'
+[[ "${FILENAME}" =~ ${BAD_CHARS} ]] && fail "The filename in the artifact URL [${ARTIFACT_URL}] decodes to one with slashes, backslashes, or control characters"
+case "${FILENAME}" in
+	"" | "." | ".." ) fail "The artifact URL [${ARTIFACT_URL}] doesn't end in a usable filename" ;;
+esac
 
 doing "Downloading the main artifact from [${ARTIFACT_URL}] ..."
 curl -fL -o "${FILENAME}" "${ARTIFACT_URL}" || fail "Failed to download the main artifact from [${ARTIFACT_URL}]"
@@ -115,40 +170,46 @@ if ! as_boolean "${NO_HASH}" ; then
 	doing "Downloading the artifact's hash ..."
 	curl -fL -o "${FILENAME}.${HASH}" "${ARTIFACT_URL}.${HASH}" || fail "Failed to download the hash from [${ARTIFACT_URL}.${HASH}]"
 
+	# The hash file may hold just the digest, or the "${HASH}sum" format (the digest
+	# followed by a filename, maybe prefixed with "*"). For the latter we use the line
+	# for our file, since the published name may differ from ours (or the file may list
+	# several), and we render a checksum file of our own, which is the one we check
+	EXPECTED="$(awk -v F="${FILENAME}" '
+		NF >= 2 { N = $2 ; sub(/^[*]/, "", N) ; if (N == F) { print $1 ; FOUND = 1 ; exit } }
+		NF == 1 && !BARE { BARE = $1 }
+		END { if (!FOUND && BARE) print BARE }
+	' "${FILENAME}.${HASH}")"
+	[[ "${EXPECTED}" =~ ^[0-9a-fA-F]+$ ]] || fail "The hash file from [${ARTIFACT_URL}.${HASH}] has no ${HASH} digest for [${FILENAME}]"
+	echo "${EXPECTED,,}  ${FILENAME}" > "${FILENAME}.${HASH}.check"
+
 	# First things first: does the checksum jive?
 	eyes "Checking the artifact's integrity with the hash..."
-	"${HASH_EXE}" "${HASH_EXE_ARGS[@]}" "${FILENAME}.${HASH}" || fail "Failed to verify the checksum for the downloaded artifact"
+	"${HASH_EXE}" "${HASH_EXE_ARGS[@]}" "${FILENAME}.${HASH}.check" || fail "Failed to verify the checksum for the downloaded artifact"
 	ok "Integrity verified!"
 else
 	warn "No hash check performed!"
 fi
 
 # Download the artifact and the validation stuff
-if as_boolean "${KEYS_SET}" ; then
+if as_boolean "${KEYS_SET}" || as_boolean "${SIGNER_SET}" ; then
+	# With just --signer, all the keys will be retrieved as needed
+	as_boolean "${KEYS_SET}" || KEYS_URL="auto"
 	[ -n "${KEYS_URL}" ] || fail "The URL for the signature keys may not be empty"
 
 	case "${KEYS_URL}" in
-		http://* | https://* )
-			;;
+		auto ) ;;
 
-	esac
-
-	case "${KEYS_URL}" in
 		http://* | https://* )
+			[[ "${KEYS_URL}" =~ ^http:// ]] && warn "The signature keys will be downloaded over plain HTTP, so they can't be trusted any more than the network can"
 			doing "Downloading the GPG keys from [${KEYS_URL}] ..."
 			curl -fL -o "${KEYS}" "${KEYS_URL}" || fail "Failed to download the signature keys from [${KEYS_URL}]"
-
-			# Next ... import the GPG keys
-			doing "Importing the downloaded keys..."
-			gpg --homedir "${WORKDIR}" --import < "${KEYS}" || fail "Failed to import the GPG keys"
-			ok "Keys imported!"
 			;;
 
 		hkps://* )
 			[[ "${KEYS_URL}" =~ ^hkps://([^/]*)/([0-9a-fA-F]+)$ ]] || fail "Invalid HKPS URL format"
 			KEY_SERVER="${BASH_REMATCH[1],,}"
 			KEY_ID="${BASH_REMATCH[2]^^}"
-			[ -n "${KEY_SERVER}" ] || KEY_SERVER="pgp.mit.edu"
+			[ -n "${KEY_SERVER}" ] || KEY_SERVER="keys.openpgp.org"
 			is_valid_hostname "${KEY_SERVER}" || fail "Invalid key server name [${KEY_SERVER}] from [${KEYS_URL}]"
 			doing "Importing the GPG key ${KEY_ID} from [${KEY_SERVER}] ..."
 			( execute gpg --homedir "${WORKDIR}" --keyserver "hkps://${KEY_SERVER}" --recv-keys "${KEY_ID}" ) || fail "Failed to download the key from ${KEYS_URL}"
@@ -157,17 +218,65 @@ if as_boolean "${KEYS_SET}" ; then
 		* ) cp -vf "${KEYS_URL}" "${KEYS}" || fail "Failed to copy the signature keys from [${KEYS_URL}]" ;;
 	esac
 
+	# Next ... import the GPG keys (from a URL or a local file)
+	if [ -f "${KEYS}" ] ; then
+		doing "Importing the signature keys..."
+		gpg --homedir "${WORKDIR}" --import < "${KEYS}" || fail "Failed to import the GPG keys"
+		ok "Keys imported!"
+	fi
+
+	# Signatures by the keys we were handed (if any) are trusted outright
+	SUPPLIED_KEYS="$(list_primary_fingerprints)"
+	[ "${KEYS_URL}" == "auto" ] || [ -n "${SUPPLIED_KEYS}" ] || fail "No GPG keys were imported from [${KEYS_URL}]"
+
 	doing "Downloading the artifact's signature ..."
 	curl -fL -o "${FILENAME}.asc" "${ARTIFACT_URL}.asc" || fail "Failed to download the signature from [${ARTIFACT_URL}.asc]"
 
-	# Finally, check the GPG signature
-	eyes "Verifying the artifact's authenticity as per the downloaded keys..."
-	gpg --homedir "${WORKDIR}" --auto-key-retrieve --verify "${FILENAME}.asc" "${FILENAME}" || fail "Failed to verify the GPG signature (rc=${?})"
+	# Finally, check the GPG signature. If we don't have the signer's key, it's retrieved from
+	# the key server (which must only publish verified email addresses, as keys.openpgp.org
+	# does), or via WKD from the domain of the signer's email address.
+	eyes "Verifying the artifact's authenticity..."
+	STATUS="${WORKDIR}/gpg.status"
+	RC=0
+	gpg --homedir "${WORKDIR}" --batch --keyserver "${GPG_KEYSERVER}" --auto-key-retrieve --status-file "${STATUS}" --verify "${FILENAME}.asc" "${FILENAME}" || RC=${?}
+	[ ${RC} -eq 0 ] || fail "Failed to verify the GPG signature (rc=${RC})"
+
+	# The exit status alone isn't enough: any signature that checks out mathematically
+	# yields 0, so we look at what gpg actually found, and who made the signature(s)
+	grep -qE '^\[GNUPG:\] (BADSIG|ERRSIG|REVKEYSIG|EXPSIG) ' "${STATUS}" && fail "The GPG signature is bad, expired, or made with a revoked key"
+	grep -qE '^\[GNUPG:\] EXPKEYSIG ' "${STATUS}" && warn "The signing key has expired since the artifact was signed"
+
+	# The last field of VALIDSIG is the fingerprint of the signer's primary key
+	readarray -t SIGNERS < <(awk '$2 == "VALIDSIG" { print $NF }' "${STATUS}" | sort -u)
+	[ ${#SIGNERS[@]} -gt 0 ] || fail "The GPG signature file has no valid signatures"
+
+	ACCEPTED="false"
+	for SIGNER in "${SIGNERS[@]}" ; do
+		readarray -t EMAILS < <(list_emails "${SIGNER}")
+		IDENTITY="${SIGNER} [${EMAILS[*]:-no email addresses}]"
+		if grep -qxF -- "${SIGNER}" <<< "${SUPPLIED_KEYS}" ; then
+			ok "Signed by ${IDENTITY}, one of the supplied keys"
+			ACCEPTED="true"
+		elif [ -n "${SIGNER_PATTERN}" ] ; then
+			if [ ${#EMAILS[@]} -gt 0 ] && printf '%s\n' "${EMAILS[@]}" | grep -qiE -- "${SIGNER_PATTERN}" ; then
+				ok "Signed by ${IDENTITY}, which matches the required signer identity [${SIGNER_PATTERN}]"
+				ACCEPTED="true"
+			else
+				err "Signed by ${IDENTITY}, which doesn't match the required signer identity [${SIGNER_PATTERN}]"
+			fi
+		elif [ ${#EMAILS[@]} -gt 0 ] ; then
+			warn "Signed by ${IDENTITY}, whose key was retrieved as needed. No signer identity was required (--signer), so this only proves that the artifact was signed by whoever controls that identity"
+			ACCEPTED="true"
+		else
+			err "Signed by ${IDENTITY}, whose key has no email address to vouch for it"
+		fi
+	done
+	as_boolean "${ACCEPTED}" || fail "None of the signatures came from an acceptable signer"
 	ok "Authenticity verified!"
 fi
 
 TARGET="${TARGET_DIR}/${TARGET_NAME:-${FILENAME}}"
 
 # Ok ... we're good! Now copy the artifact to wherever it's supposed to go!
-ln "${FILENAME}" "${TARGET}" || cp -vf "${FILENAME}" "${TARGET}" || fail "Failed to hard-link or copy the downloaded artifact from [${ARTIFACT_URL}] into the target location at [${TARGET}]"
+ln "${FILENAME}" "${TARGET}" 2>/dev/null || cp -vf "${FILENAME}" "${TARGET}" || fail "Failed to hard-link or copy the downloaded artifact from [${ARTIFACT_URL}] into the target location at [${TARGET}]"
 ok "Downloaded and verified [${ARTIFACT_URL}] into [${TARGET}]"
