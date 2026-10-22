@@ -9,7 +9,7 @@ list_options()
 	local A B C
 	update-java-alternatives --list </dev/null 2>/dev/null | \
 		awk '{ print $1 }' | \
-		egrep "java-((0|[1-9][0-9]*)[.])?${VER}([.][0-9]+])?" | \
+		grep -E "java-((0|[1-9][0-9]*)[.])?${VER}([.][0-9]+)?" | \
 		sort
 }
 
@@ -43,7 +43,8 @@ usage()
 
 # If we're not being asked to set a Java version, we simply
 # output the current one
-[ ${#} -ne 1 ] && exec get-java
+[ ${#} -eq 0 ] && exec get-java
+[ ${#} -eq 1 ] || usage
 
 [ -n "${1}" ] || usage
 
@@ -52,8 +53,8 @@ case "${1,,}" in
 	"-?" | "-h" | "--help" ) usage ;;
 esac
 
-# Make sure we run as root
-[ $(id -u) -eq 0 ] || exec sudo --non-interactive --preserve-env "PATH=${PATH}" "${0}" "${@}"
+# Make sure we run as root (the sudoers rule decides which variables we get to keep)
+[ $(id -u) -eq 0 ] || exec sudo --non-interactive "${0}" "${@}"
 
 VER="${1}"
 
@@ -62,8 +63,8 @@ if [ "${VER,,}" == "auto" ] ; then
 	quit "Re-set the java alternative to automatic mode"
 fi
 
-OUT="$(get_option "${VER}")" || fail "${OUT}"
-RESULT="$(update-java-alternatives --set "${OUT}" 2>&1)" || fail "Failed to configure the Java alternative to [${OUT}]  (number ${NUM}) (rc=${?}):\n${RESULT}"
+ALTERNATIVE="$(get_option "${VER}")" || fail "${ALTERNATIVE}"
+RESULT="$(update-java-alternatives --set "${ALTERNATIVE}" 2>&1)" || fail "Failed to configure the Java alternative to [${ALTERNATIVE}] (version ${VER}) (rc=${?}):\n${RESULT}"
 
 JAVA="$(type -P java 2>/dev/null)" || fail "Java is not in the PATH!!"
 JAVA="$(readlink -f "${JAVA}" 2>&1)" || fail "Failed to resolve the real location of the Java executable (rc=${?}): ${JAVA}"
@@ -76,11 +77,19 @@ JVM="$(readlink -f "${JVM}" 2>&1)" || fail "Failed to resolve the real location 
 JVM_BASE="/usr/lib/jvm"
 for SYM in java jre ; do
 	SYM="${JVM_BASE}/${SYM}"
-	if [ -e "${SYM}" ] ; then
+	# Only symbolic links (even dangling ones) may be replaced
+	if [ -e "${SYM}" ] || [ -h "${SYM}" ] ; then
 		[ -h "${SYM}" ] || fail "The Java symbolic target [${SYM}] is not a symbolic link"
-		OUT="$(rm -f "${SYM}" 2>&1)" || fail "Failed to clear the existing symbolic link at [${SYM}] (rc=${?}): ${OUT}"
 	fi
-	OUT="$(ln -sv "${JVM}" "${SYM}" 2>&1)" || fail "Failed to create the new symbolic link [${SYM}] -> [${JVM}] (rc=${?}): ${OUT}"
+	# Create the new link alongside the old one, and rename it into place, so
+	# there's never a moment when JAVA_HOME (or JRE_HOME) doesn't exist
+	NEW="${SYM}.new.${$}"
+	RC=0
+	OUT="$(ln -snf "${JVM}" "${NEW}" 2>&1 && mv -Tf "${NEW}" "${SYM}" 2>&1)" || RC=${?}
+	if [ ${RC} -ne 0 ] ; then
+		rm -f "${NEW}"
+		fail "Failed to create the new symbolic link [${SYM}] -> [${JVM}] (rc=${RC}): ${OUT}"
+	fi
 done
 
-ok "Set Java to [${OUT}]"
+ok "Set Java to [${ALTERNATIVE}]"
