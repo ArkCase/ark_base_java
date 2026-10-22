@@ -19,6 +19,7 @@ get_executable()
 usage()
 {
 	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} CVE-name-or-label [old-version:]new-version artifact1 [ artifact2 artifact3 ... artifactN ]"
+	exit 1
 }
 
 [ ${#} -ge 3 ] || usage
@@ -81,7 +82,7 @@ for ARTIFACT_ID in "${@}" ; do
 			FIRST="${TGT}/${JAR_NAME}"
 		else
 			# Re-use the downloaded copy to all these other places
-			ln -vf "${FIRST}" "${TGT}" || cp -vc "${FIRST}" "${TGT}" || fail "Failed to copy or link [${FIRST}] to [${TGT}]"
+			ln -vf "${FIRST}" "${TGT}" || cp -vf "${FIRST}" "${TGT}" || fail "Failed to copy or link [${FIRST}] to [${TGT}]"
 		fi
 
 		[ -n "${POST_CALL}" ] || continue
