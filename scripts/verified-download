@@ -5,10 +5,13 @@ set -euo pipefail
 
 cleanup()
 {
-	[ -v WORKDIR ] || return 0
+	local RC=${?}
+	[ -v WORKDIR ] || return ${RC}
+	set +e
 	# Stop any GPG agents (i.e. dirmngr) that were started for our home directory
 	gpgconf --homedir "${WORKDIR}" --kill all &>/dev/null
 	rm -rf "${WORKDIR}" &>/dev/null
+	return ${RC}
 }
 
 usage()
