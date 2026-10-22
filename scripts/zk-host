@@ -1,81 +1,111 @@
 #!/bin/bash
 
 #
+# This file must be sourced, not executed
+#
+[[ "${BASH_SOURCE[0]}" != "${0}" ]] || { echo "${0} must be sourced, not executed" 1>&2 ; exit 1 ; }
+
+#
 # If the functions haven't been loaded, load them!
 #
 . /.functions
 
 #
-# Set the minimum expected return values
+# All the work happens within this function, so its working variables
+# can be local, and can't clobber the caller's. It removes itself
+# right away, so it's gone by the time we return to the caller (bash
+# runs a copy of the function's body, so this is safe).
 #
-set_or_default ZK_HOST
-export ZK_HOST
+__zk_host()
+{
+	unset -f __zk_host
 
-export ZK_HOST_COMPUTED="false"
+	#
+	# Set the minimum expected return values
+	#
+	set_or_default ZK_HOST
+	export ZK_HOST
 
-#
-# Compute the ZK_HOST value from DNS, if possible. If
-# not, then we fall back to whatever value was set
-# statically in the environment
-#
-QUERY_SERVICE="${ZK_QUERY_SVC:-}"
-if [ -z "${QUERY_SERVICE}" ] ; then
-	warn "No value set for ZK_QUERY_SVC - can't compute a new ZK_HOST value via DNS!"
+	export ZK_HOST_COMPUTED="false"
+
+	#
+	# Compute the ZK_HOST value from DNS, if possible. If
+	# not, then we fall back to whatever value was set
+	# statically in the environment
+	#
+	local QUERY_SERVICE="${ZK_QUERY_SVC:-}"
+	if [ -z "${QUERY_SERVICE}" ] ; then
+		warn "No value set for ZK_QUERY_SVC - can't compute a new ZK_HOST value via DNS!"
+		return 0
+	fi
+
+	# Careful: this can't be called CLUSTER_DOMAIN, since get_cluster_domain
+	# reads that variable, and would see our (empty) local instead
+	local DOMAIN=""
+	if ! DOMAIN="$(get_cluster_domain)" ; then
+		err "Could not compute the cluster domain for ZooKeeper ZK_HOST calculation"
+		return 1
+	fi
+
+	# We have a domain! Use it! (unless the service name is already fully qualified)
+	if [[ ! "${QUERY_SERVICE}" =~ [.]$ ]] ; then
+		QUERY_SERVICE+="."
+		[ -n "${DOMAIN}" ] && QUERY_SERVICE+="${DOMAIN}."
+	fi
+
+	#
+	# Run our DNS query!
+	#
+	local DNS_RESULT=""
+	if ! DNS_RESULT="$(dig +short -t SRV "${QUERY_SERVICE}")" ; then
+		err "Failed to execute the DNS query for ${QUERY_SERVICE}"
+		return 2
+	fi
+
+	#
+	# Parse the result and produce the new value for ZK_HOST. It's computed
+	# separately, so the static value survives if DNS has nothing for us
+	#
+	local NEW_HOST=""
+	local NEW_HOST_ARR=()
+	local PRIORITY WEIGHT PORT TARGET CURRENT
+	while read -r PRIORITY WEIGHT PORT TARGET ; do
+		[ -n "${TARGET}" ] || continue
+		CURRENT="${TARGET}:${PORT}"
+		NEW_HOST+="${NEW_HOST:+,}${CURRENT}"
+		NEW_HOST_ARR+=( "${CURRENT}" )
+	done < <(echo -n "${DNS_RESULT}" | sort -k 4)
+
+	if [ -z "${NEW_HOST}" ] ; then
+		warn "The DNS query for ${QUERY_SERVICE} returned no SRV records, keeping the static value ZK_HOST=${ZK_HOST@Q}"
+		return 0
+	fi
+
+	# Preserve any chroot info from the static value!
+	local ZK_CHROOT=""
+	[[ "${ZK_HOST}" =~ (/.*)$ ]] && ZK_CHROOT="${BASH_REMATCH[1]}"
+
+	if [ -n "${ZK_CHROOT}" ] ; then
+		# This should sanitize the path:
+		# - remove repeat slashes
+		# - remove trailing slashes
+		# - remove leading slashes
+		# - re-add ONE leading slash
+		ZK_CHROOT="$(echo -n "${ZK_CHROOT}" | sed -e 's;/\+;/;g' -e 's;/$;;g' -e 's;^/;;g' -e 's;^;/;g')"
+		# Last validation: if the final path is "/",
+		# then we don't append it to ZK_HOST
+		[ "${ZK_CHROOT}" == "/" ] || NEW_HOST+="${ZK_CHROOT}"
+	fi
+
+	#
+	# Define our return values! (arrays can't be exported, so
+	# ZK_HOST_ARR is only visible to the shell that sourced us)
+	#
+	ZK_HOST="${NEW_HOST}"
+	declare -ga ZK_HOST_ARR=( "${NEW_HOST_ARR[@]}" )
+	ok "Computed ZK_HOST=${ZK_HOST@Q}"
+	ZK_HOST_COMPUTED="true"
 	return 0
-fi
+}
 
-if ! CLUSTER_DOMAIN="$(get_cluster_domain)" ; then
-	err "Could not compute the cluster domain for ZooKeeper ZK_HOST calculation"
-	return 1
-fi
-
-# We have a domain! Use it!
-[[ "${QUERY_SERVICE}" =~ ^.*[.]$ ]] || QUERY_SERVICE+="."
-[ -n "${CLUSTER_DOMAIN}" ] && QUERY_SERVICE+="${CLUSTER_DOMAIN}."
-
-#
-# Run our DNS query!
-#
-if ! DNS_RESULT="$(dig +short -t SRV "${QUERY_SERVICE}")" ; then
-	err "Failed to execute the DNS query for ${QUERY_SERVICE}"
-	return 2
-fi
-
-#
-# Parse the result and produce the final value for ZK_HOST!
-#
-# But first... preserve any chroot info!
-[[ "${ZK_HOST}" =~ (/.*)$ ]] && ZK_CHROOT="${BASH_REMATCH[1]}" || ZK_CHROOT=""
-
-ZK_HOST=""
-export ZK_HOST_ARR=()
-while read PRIORITY WEIGHT PORT TARGET ; do
-	[ -n "${ZK_HOST}" ] && ZK_HOST+=","
-	CURRENT="${TARGET}:${PORT}"
-	ZK_HOST+="${CURRENT}"
-	ZK_HOST_ARR+=( "${CURRENT}" )
-done < <(echo -n "${DNS_RESULT}" | sort -k 4)
-unset CURRENT
-
-if [ -n "${ZK_CHROOT}" ] ; then
-	# This should sanitize the path:
-	# - remove repeat slashes
-	# - remove trailing slashes
-	# - remove leading slashes
-	# - re-add ONE leading slash
-	ZK_CHROOT="$(echo -n "${ZK_CHROOT}" | sed -e 's;/\+;/;g' -e 's;/$;;g' -e 's;^/;;g' -e 's;^;/;g')"
-	# Last validation: if the final path is "/",
-	# then we don't append it to ZK_HOST
-	[ "${ZK_CHROOT}" == "/" ] || ZK_HOST+="${ZK_CHROOT}"
-fi
-
-#
-# A little cleanup
-#
-unset QUERY_SERVICE CLUSTER_DOMAIN DNS_RESULT PRIORITY WEIGHT PORT TARGET ZK_CHROOT
-
-#
-# Define our return values!
-#
-ok "Computed ZK_HOST=${ZK_HOST@Q}"
-ZK_HOST_COMPUTED="true"
+__zk_host
