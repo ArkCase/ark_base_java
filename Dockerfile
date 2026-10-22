@@ -23,6 +23,7 @@ ARG VER="24.04"
 
 ARG JMX_VER="1.5.0"
 ARG JMX_KEYS="hkps://keys.openpgp.org/90E3CDDECF99D81C0309D74CCADDBDF51122242E"
+ARG JMX_KEY_SIGNER="doug.hoard@gmail.com"
 ARG JMX_SRC="https://github.com/prometheus/jmx_exporter/releases/download/${JMX_VER}/jmx_prometheus_javaagent-${JMX_VER}.jar"
 
 ARG CW_VER="1.9.8"
@@ -70,6 +71,7 @@ ARG ARCH
 ARG OS
 ARG VER
 ARG JMX_KEYS
+ARG JMX_KEY_SIGNER
 ARG JMX_SRC
 ARG CW_SRC
 ARG CW_REPO
@@ -150,7 +152,7 @@ ENV JMX_AGENT_ARG="-javaagent:${JMX_AGENT_JAR}=9100:${JMX_AGENT_CONF}"
 
 COPY --chown=root:root --chmod=0755 jmx-prometheus-agent.yaml "${CONF_DIR}"
 RUN mkdir -p "${LIB_DIR}" && \
-    verified-download --hash "sha256" --keys "${JMX_KEYS}" "${JMX_SRC}" "${JMX_AGENT_JAR}"
+    verified-download --hash "sha256" --keys "${JMX_KEYS}" --signer "${JMX_KEY_SIGNER}" "${JMX_SRC}" "${JMX_AGENT_JAR}"
 
 RUN --mount=type=secret,id=mvn_get_auth \
     . /run/secrets/mvn_get_auth && \
