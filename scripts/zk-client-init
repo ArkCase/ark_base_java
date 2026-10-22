@@ -1,55 +1,115 @@
 #!/bin/bash
 
+#
+# This file must be sourced, not executed
+#
+[[ "${BASH_SOURCE[0]}" != "${0}" ]] || { echo "${0} must be sourced, not executed" 1>&2 ; exit 1 ; }
+
 . /.functions
 
 #
-# Set the minimum expected return values
+# All the work happens within this function, so its working variables
+# can be local, and can't clobber the caller's. Only the return values
+# are global (via export or declare -g). It removes itself right away,
+# so it's gone by the time we return to the caller (bash runs a copy of
+# the function's body, so this is safe).
 #
-export ZOOKEEPER_SSL="false"
-export ZOOKEEPER_SSL_CLIENT_OPTIONS=""
+__zk_client_init()
+{
+	unset -f __zk_client_init
 
-#
-# If the SSL stuff is enabled, we use it!
-#
-init_ssl || return 0
+	#
+	# Set the minimum expected return values
+	#
+	export ZOOKEEPER_SSL="false"
+	export ZOOKEEPER_SSL_CLIENT_OPTIONS=""
 
-#
-# All the SSL stuff is ready!
-#
-export ZOOKEEPER_SSL="true"
+	#
+	# If the SSL stuff is enabled, we use it!
+	#
+	init_ssl || return 0
 
-is_fips && ZOOKEEPER_HOSTNAME_VERIFICATION="false" || ZOOKEEPER_HOSTNAME_VERIFICATION="true"
-export ZOOKEEPER_HOSTNAME_VERIFICATION
+	#
+	# All the SSL stuff is ready!
+	#
+	export ZOOKEEPER_SSL="true"
 
-export ZOOKEEPER_PROTOCOL="TLSv1.3"
-export ZOOKEEPER_ENABLED_PROTOCOLS="${ZOOKEEPER_PROTOCOL}"
-export ZOOKEEPER_CIPHERS="TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256"
+	#
+	# BouncyCastle (i.e. in FIPS mode) can't verify hostnames that are IP addresses,
+	# so in that case verification is only enabled if none of the ZooKeeper hosts in
+	# ZK_HOST (i.e. "host1:2181,host2:2181/chroot") are IP addresses (v4 or v6)
+	#
+	export ZOOKEEPER_HOSTNAME_VERIFICATION="true"
+	if is_fips ; then
+		local ZK_HOSTS="${ZK_HOST:-}"
+		local HOSTS=()
+		local HOST=""
+		local NAMES="false"
+		local IPS="false"
 
-export ZOOKEEPER_SSL_COMMON_OPTIONS_ARR=(
-	-Dzookeeper.ssl.hostnameVerification="${ZOOKEEPER_HOSTNAME_VERIFICATION}"
-	-Dzookeeper.ssl.protocol="${ZOOKEEPER_PROTOCOL}"
-	-Dzookeeper.ssl.enabledProtocols="${ZOOKEEPER_ENABLED_PROTOCOLS}"
-	-Dzookeeper.ssl.ciphersuites="${ZOOKEEPER_CIPHERS}"
+		# Remove the chroot (if any), and split the host:port pairs
+		IFS="," read -r -a HOSTS <<< "${ZK_HOSTS%%/*}"
+		for HOST in "${HOSTS[@]}" ; do
+			# Remove any whitespace
+			HOST="${HOST//[[:space:]]/}"
+			[ -n "${HOST}" ] || continue
 
-	-Dzookeeper.ssl.keyStore.location="${JAVA_KEYSTORE}"
-	-Dzookeeper.ssl.keyStore.passwordPath="${JAVA_KEYSTORE_PASSWORD_FILE}"
-	-Dzookeeper.ssl.keyStore.type="${JAVA_KEYSTORE_TYPE}"
+			# A bracketed IPv6 address (i.e. [::1]:2181)
+			[[ "${HOST}" =~ ^\[ ]] && IPS="true" && break
 
-	-Dzookeeper.ssl.trustStore.location="${JAVA_TRUSTSTORE}"
-	-Dzookeeper.ssl.trustStore.passwordPath="${JAVA_TRUSTSTORE_PASSWORD_FILE}"
-	-Dzookeeper.ssl.trustStore.type="${JAVA_TRUSTSTORE_TYPE}"
-)
-export ZOOKEEPER_SSL_COMMON_OPTIONS="${ZOOKEEPER_SSL_COMMON_OPTIONS_ARR[@]}"
+			# Remove the port, if any
+			[[ "${HOST}" =~ ^(.*):[0-9]+$ ]] && HOST="${BASH_REMATCH[1]}"
 
-export ZOOKEEPER_SSL_CLIENT_OPTIONS_ARR=(
-	-Dzookeeper.clientCnxnSocket="org.apache.zookeeper.ClientCnxnSocketNetty"
-	-Dzookeeper.client.secure="true"
-	-Dzookeeper.sasl.client="false"
+			# Any colons that are left mean it's a bare IPv6 address
+			[[ "${HOST}" =~ : ]] && IPS="true" && break
+			is_valid_ipv4 "${HOST}" && IPS="true" && break
 
-	"${ZOOKEEPER_SSL_COMMON_OPTIONS_ARR[@]}"
-)
-export ZOOKEEPER_SSL_CLIENT_OPTIONS="${ZOOKEEPER_SSL_CLIENT_OPTIONS_ARR[@]}"
+			NAMES="true"
+		done
 
-#
-# Done!
-#
+		if as_boolean "${IPS}" ; then
+			ZOOKEEPER_HOSTNAME_VERIFICATION="false"
+			warn "FIPS mode is enabled and ZK_HOST has IP addresses, so ZooKeeper's hostname verification will be disabled"
+		elif ! as_boolean "${NAMES}" ; then
+			ZOOKEEPER_HOSTNAME_VERIFICATION="false"
+			warn "FIPS mode is enabled and ZK_HOST has no hosts we can examine, so ZooKeeper's hostname verification will be disabled"
+		fi
+	fi
+
+	export ZOOKEEPER_PROTOCOL="TLSv1.3"
+	export ZOOKEEPER_ENABLED_PROTOCOLS="${ZOOKEEPER_PROTOCOL}"
+	export ZOOKEEPER_CIPHERS="TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256"
+
+	# Arrays can't be exported, so these are only visible to the shell that sourced us
+	declare -ga ZOOKEEPER_SSL_COMMON_OPTIONS_ARR=(
+		-Dzookeeper.ssl.hostnameVerification="${ZOOKEEPER_HOSTNAME_VERIFICATION}"
+		-Dzookeeper.ssl.protocol="${ZOOKEEPER_PROTOCOL}"
+		-Dzookeeper.ssl.enabledProtocols="${ZOOKEEPER_ENABLED_PROTOCOLS}"
+		-Dzookeeper.ssl.ciphersuites="${ZOOKEEPER_CIPHERS}"
+
+		-Dzookeeper.ssl.keyStore.location="${JAVA_KEYSTORE}"
+		-Dzookeeper.ssl.keyStore.passwordPath="${JAVA_KEYSTORE_PASSWORD_FILE}"
+		-Dzookeeper.ssl.keyStore.type="${JAVA_KEYSTORE_TYPE}"
+
+		-Dzookeeper.ssl.trustStore.location="${JAVA_TRUSTSTORE}"
+		-Dzookeeper.ssl.trustStore.passwordPath="${JAVA_TRUSTSTORE_PASSWORD_FILE}"
+		-Dzookeeper.ssl.trustStore.type="${JAVA_TRUSTSTORE_TYPE}"
+	)
+	export ZOOKEEPER_SSL_COMMON_OPTIONS="${ZOOKEEPER_SSL_COMMON_OPTIONS_ARR[@]}"
+
+	declare -ga ZOOKEEPER_SSL_CLIENT_OPTIONS_ARR=(
+		-Dzookeeper.clientCnxnSocket="org.apache.zookeeper.ClientCnxnSocketNetty"
+		-Dzookeeper.client.secure="true"
+		-Dzookeeper.sasl.client="false"
+
+		"${ZOOKEEPER_SSL_COMMON_OPTIONS_ARR[@]}"
+	)
+	export ZOOKEEPER_SSL_CLIENT_OPTIONS="${ZOOKEEPER_SSL_CLIENT_OPTIONS_ARR[@]}"
+
+	#
+	# Done!
+	#
+	return 0
+}
+
+__zk_client_init
