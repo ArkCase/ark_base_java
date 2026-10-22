@@ -8,7 +8,7 @@ set -euo pipefail
 set_or_default FIPS_DEPLOY_MARKER "${FIPS_DIR}/.deployment"
 set_or_default APP_LIB_DIRS
 
-[ -n "${APP_LIB_DIRS}" ] || quit "No APP_LIB_DIRS defined, nowhere to deploy to"S
+[ -n "${APP_LIB_DIRS}" ] || quit "No APP_LIB_DIRS defined, nowhere to deploy to"
 
 is_file "${FIPS_DEPLOY_MARKER}" && quit "The crypto libraries have already been deployed (${FIPS_DEPLOY_MARKER})"
 
@@ -38,6 +38,18 @@ do_copy()
 {
 	local TGT="${1}"
 	cd "${FIPS_DIR}" || return 1
+
+	# Remove any other versions of our JARs that the application may bring
+	# along, so there's only one copy of each provider in the classpath
+	local JAR=""
+	local BASE=""
+	for JAR in *.jar ; do
+		# i.e. bcpkix-fips-2.0.12.jar -> bcpkix-fips
+		BASE="${JAR%-[0-9]*.jar}"
+		[ "${BASE}" != "${JAR}" ] || continue
+		find "${TGT}" -mindepth 1 -maxdepth 1 -type f -name "${BASE}-[0-9]*.jar" ! -name "${JAR}" -print -delete || return 3
+	done
+
 	echo "Creating hard links..."
 	ln -vf * "${TGT}" && return 0
 	echo "Trying a copy..."
@@ -55,6 +67,6 @@ for TARGET in "${TARGETS[@]}" ; do
 	DEPLOYED_DIRS+="${TARGET}"
 done
 
-OUT="$(say "${DEPLOYED_DIRS}" > "${FIPS_DEPLOY_MARKER}")" || warn "Failed to create the crypto deployment marker (rc=${?})"
+OUT="$( { printf '%s\n' "${DEPLOYED_DIRS}" > "${FIPS_DEPLOY_MARKER}" ; } 2>&1 )" || warn "Failed to create the crypto deployment marker (rc=${?}): ${OUT}"
 ok "Crypto libraries deployed!"
 exit 0
