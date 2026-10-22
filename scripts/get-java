@@ -9,5 +9,8 @@ VARS=()
 [ -v JAVA_HOME ] && VARS+=( "JAVA_HOME=${JAVA_HOME}" )
 
 OUT="$(env -i "${VARS[@]}" "${JAVA}" -fullversion 2>&1)" || fail "Unable to determine the current Java version (rc=${?}): ${OUT}"
-echo "${OUT}" | grep '"' | sed -e 's;^[^"]*";;g' -e 's;[.].*$;;g'
+# i.e. openjdk full version "11.0.22+7-LTS", or "25+36-Ubuntu-124.04", or "1.8.0_392-b08"
+VERSION="$(echo "${OUT}" | sed -n -e 's;^[^"]*"\([^"]*\)".*$;\1;p' | head -1)"
+[[ "${VERSION}" =~ ^(1[.])?([0-9]+) ]] || fail "Unable to parse the current Java version from: ${OUT}"
+echo "${BASH_REMATCH[2]}"
 exit 0
