@@ -18,7 +18,7 @@ get_executable()
 
 usage()
 {
-	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} CVE-name-or-label [old-version:]new-version artifact1 [ artifact2 artifact3 ... artifactN ]"
+	echo -e "usage: ${BASH_ARGV0:-${BASH_SOURCE:-${0}}} CVE-name-or-label [old-version:]new-version artifact1@var[,var...] [ artifact2@var[,var...] ... artifactN@var[,var...] ]"
 	exit 1
 }
 
@@ -59,7 +59,7 @@ eyes "Fixing JARs for ${CVE_LABEL}"
 
 for ARTIFACT_ID in "${@}" ; do
 
-	[[ "${ARTIFACT_ID}" =~ ^([^@]+)@([a-zA-Z0-9_,]+)$ ]] || continue
+	[[ "${ARTIFACT_ID}" =~ ^([^@]+)@([a-zA-Z0-9_,]+)$ ]] || fail "Invalid artifact specification [${ARTIFACT_ID}] for ${CVE_LABEL} - must be group:artifact@VAR[,VAR...]"
 
 	ARTIFACT_ID="${BASH_REMATCH[1]}"
 
