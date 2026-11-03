@@ -30,6 +30,10 @@ ARG CW_VER="1.9.9"
 ARG CW_SRC="com.armedia.acm:curator-wrapper:${CW_VER}:jar:exe"
 ARG CW_REPO="https://nexus.armedia.com/repository/arkcase"
 
+ARG KS_VER="1.0.0"
+ARG KS_SRC="com.armedia.crypto:keystore-tool:${KS_VER}:jar"
+ARG KS_REPO="https://nexus.armedia.com/repository/armedia"
+
 ARG BC_GROUP="org.bouncycastle"
 
 ARG BC_PKIX_GROUP="${BC_GROUP}"
@@ -75,6 +79,8 @@ ARG JMX_KEY_SIGNER
 ARG JMX_SRC
 ARG CW_SRC
 ARG CW_REPO
+ARG KS_SRC
+ARG KS_REPO
 ARG BC_PKIX
 ARG BC_PKIX_VER
 ARG BC_PKIX_SRC
@@ -101,46 +107,11 @@ ARG CACERTS="/etc/ssl/certs/java/cacerts"
 ENV TEMP="${TEMP_DIR}"
 ENV TMP="${TEMP}"
 
-#
-# Add the JVMs
-#
-RUN wget -O - https://apt.corretto.aws/corretto.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/corretto-keyring.gpg && \
-    chmod a+r /etc/apt/trusted.gpg.d/corretto-keyring.gpg && \
-    echo "deb [signed-by=/etc/apt/trusted.gpg.d/corretto-keyring.gpg] https://apt.corretto.aws stable main" | tee /etc/apt/sources.list.d/corretto.list && \
-    apt-get update
-
-RUN apt-get -y install \
-        java-11-amazon-corretto-jdk \
-        openjdk-17-jdk-headless \
-        openjdk-21-jdk-headless \
-        openjdk-25-jdk-headless \
-      && \
-    apt-get clean
-
-#
-# This is an important fix to ensure that all installed JVMs
-# have their default cacerts file replaced with a link to
-# the OS-provided cacerts file
-#
-RUN find /usr/lib/jvm -type f -name cacerts | \
-    while read file ; do \
-        ln -v "${file}" "${file}.orig" && \
-        rm -vf "${file}" && \
-        ln -vs "${CACERTS}" "${file}" ; \
-    done
-
 # Set the Java-centric envvars to paths that will be
 # manipulated via the alternatives mechanism, so they
 # always point to the correct location in the filesystem
 ENV JAVA_HOME="/usr/lib/jvm/java"
 ENV JRE_HOME="/usr/lib/jvm/jre"
-
-#
-# Add the JVM selector script
-#
-COPY --chown=root:root --chmod=0755 scripts/ /usr/local/bin
-COPY --chown=root:root --chmod=0640 01-set-java /etc/sudoers.d
-RUN sed -i -e "s;\${ACM_GROUP};${ACM_GROUP};g" /etc/sudoers.d/01-set-java
 
 #
 # Add the common-use JMX agent JAR
@@ -150,34 +121,45 @@ ENV JMX_AGENT_JAR="${LIB_DIR}/jmx-prometheus-agent.jar"
 ENV JMX_AGENT_CONF="${CONF_DIR}/jmx-prometheus-agent.yaml"
 ENV JMX_AGENT_ARG="-javaagent:${JMX_AGENT_JAR}=9100:${JMX_AGENT_CONF}"
 
-COPY --chown=root:root --chmod=0755 jmx-prometheus-agent.yaml "${CONF_DIR}"
-RUN mkdir -p "${LIB_DIR}" && \
-    verified-download --hash "sha256" --keys "${JMX_KEYS}" --signer "${JMX_KEY_SIGNER}" "${JMX_SRC}" "${JMX_AGENT_JAR}"
-
-RUN --mount=type=secret,id=mvn_get_auth \
-    . /run/secrets/mvn_get_auth && \
-    mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar"
-
-#
-# Add the BouncyCastle FIPS stuff, but only if FIPS is enabled
-#
 ENV FIPS_DIR="${BASE_DIR}/fips"
-RUN --mount=type=bind,target=/policies,source=policies \
+
+#
+# Add the JVMs
+#
+RUN --mount=type=bind,target=/src \
+    --mount=type=secret,id=mvn_get_auth \
+    . /run/secrets/mvn_get_auth && \
+    wget -O - https://apt.corretto.aws/corretto.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/corretto-keyring.gpg && \
+    chmod a+r /etc/apt/trusted.gpg.d/corretto-keyring.gpg && \
+    echo "deb [signed-by=/etc/apt/trusted.gpg.d/corretto-keyring.gpg] https://apt.corretto.aws stable main" | tee /etc/apt/sources.list.d/corretto.list && \
+    apt-get update && \
+    apt-get -y install \
+        java-11-amazon-corretto-jdk \
+        openjdk-17-jdk-headless \
+        openjdk-21-jdk-headless \
+        openjdk-25-jdk-headless \
+      && \
+    apt-get clean && \
+    find /usr/lib/jvm -type f -name cacerts | \
+    while read file ; do \
+        ln -v "${file}" "${file}.orig" && \
+        rm -vf "${file}" && \
+        ln -vs "${CACERTS}" "${file}" ; \
+    done && \
+    install -o root -g root -m 0444 /src/01-set-java /etc/sudoers.d && \
+    sed -i -e "s;\${ACM_GROUP};${ACM_GROUP};g" /etc/sudoers.d/01-set-java && \
+    ( tar --owner=root --group=root --mode=u=rwX,go=rX -cf - /src/scripts ) | tar --strip-components=2 -C /usr/local/bin -xvf - && \
+    install -o root -g root -m 0644 /src/jmx-prometheus-agent.yaml "${CONF_DIR}" && \
+    mkdir -p "${LIB_DIR}" && \
+    verified-download --hash "sha256" --keys "${JMX_KEYS}" --signer "${JMX_KEY_SIGNER}" "${JMX_SRC}" "${JMX_AGENT_JAR}" && \
+    mvn-get "${KS_SRC}" "${KS_REPO}" "/usr/local/bin/keystore-tool.jar" && \
+    mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar" && \
     mkdir -p "${FIPS_DIR}" && \
     mvn-get "${BC_PKIX_SRC}" "${FIPS_DIR}" && \
     mvn-get "${BC_PROV_SRC}" "${FIPS_DIR}" && \
     mvn-get "${BC_TLS_SRC}" "${FIPS_DIR}" && \
     mvn-get "${BC_UTIL_SRC}" "${FIPS_DIR}" && \
-    tar -C /policies/java.security --owner=0 --group=0 --no-same-owner --no-same-permissions -cf - . | tar -C / --no-overwrite-dir -xvf - && \
-    export BC_FIPS="${FIPS_DIR}/.bc-fips.policy" && \
-    cp -vf /policies/bc-fips.policy "${BC_FIPS}" && \
-    chown root:root "${BC_FIPS}" && \
-    chmod a=r "${BC_FIPS}"
-
-#
-# Default to Java 11 (Amazon Coretto), for now
-#
-RUN /usr/local/bin/set-java 11
-
-# STIG Remediations
-RUN --mount=type=bind,source=stig,target=/stig run-stig /stig
+    tar -C /src/policies/java.security --owner=root --group=root --no-same-owner --no-same-permissions -cf - . | tar -C / --no-overwrite-dir -xvf - && \
+    install -m 0444 -o root -g root /src/policies/bc-fips.policy "${FIPS_DIR}/.bc-fips.policy" && \
+    /usr/local/bin/set-java 11 && \
+    run-stig /src/stig
