@@ -30,7 +30,7 @@ ARG CW_VER="1.9.9"
 ARG CW_SRC="com.armedia.acm:curator-wrapper:${CW_VER}:jar:exe"
 ARG CW_REPO="https://nexus.armedia.com/repository/arkcase"
 
-ARG KS_VER="1.0.0"
+ARG KS_VER="1.1.0"
 ARG KS_SRC="com.armedia.crypto:keystore-tool:${KS_VER}:jar"
 ARG KS_REPO="https://nexus.armedia.com/repository/armedia"
 
