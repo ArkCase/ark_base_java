@@ -253,7 +253,7 @@ policy.provider=sun.security.provider.PolicyFile
 # The default is to have a single system-wide policy file,
 # and a policy file in the user's home directory.
 #
-policy.url.1=file:/app/fips/.bc-fips.policy
+policy.url.1=file:/usr/local/lib/fips/.bc-fips.policy
 policy.url.2=file:${java.home}/conf/security/java.policy
 policy.url.3=file:${user.home}/.java.policy
 

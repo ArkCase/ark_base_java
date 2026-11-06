@@ -114,14 +114,19 @@ ENV JAVA_HOME="/usr/lib/jvm/java"
 ENV JRE_HOME="/usr/lib/jvm/jre"
 
 #
-# Add the common-use JMX agent JAR
+# Add the common-use JMX agent JAR. Shared, read-only JARs go in JAVA_SHARED_LIBS_DIR, so
+# they're easy to add to the classpath. LIB_DIR is the per-application library
+# directory (i.e. tika puts its own JARs there, and its contents on its classpath)
 #
 ENV LIB_DIR="${BASE_DIR}/lib"
-ENV JMX_AGENT_JAR="${LIB_DIR}/jmx-prometheus-agent.jar"
+ENV JAVA_SHARED_LIBS_DIR="/usr/local/lib/jar"
+ENV JMX_AGENT_JAR="${JAVA_SHARED_LIBS_DIR}/jmx-prometheus-agent.jar"
 ENV JMX_AGENT_CONF="${CONF_DIR}/jmx-prometheus-agent.yaml"
 ENV JMX_AGENT_ARG="-javaagent:${JMX_AGENT_JAR}=9100:${JMX_AGENT_CONF}"
 
-ENV FIPS_DIR="${BASE_DIR}/fips"
+# The FIPS providers are read-only, so they live outside of BASE_DIR. The charts
+# still use --module-path=/app/fips, so that remains as a (relative) symlink
+ENV FIPS_DIR="/usr/local/lib/fips"
 
 #
 # Add the JVMs
@@ -146,11 +151,11 @@ RUN --mount=type=bind,target=/src \
         rm -vf "${file}" && \
         ln -vs "${CACERTS}" "${file}" ; \
     done && \
-    install -o root -g root -m 0444 /src/01-set-java /etc/sudoers.d && \
+    install -o root -g root -m 0440 /src/01-set-java /etc/sudoers.d && \
     sed -i -e "s;\${ACM_GROUP};${ACM_GROUP};g" /etc/sudoers.d/01-set-java && \
     ( tar --owner=root --group=root --mode=u=rwX,go=rX -cf - /src/scripts ) | tar --strip-components=2 -C /usr/local/bin -xvf - && \
     install -o root -g root -m 0644 /src/jmx-prometheus-agent.yaml "${CONF_DIR}" && \
-    mkdir -p "${LIB_DIR}" && \
+    mkdir -p "${LIB_DIR}" "${JAVA_SHARED_LIBS_DIR}" && \
     verified-download --hash "sha256" --keys "${JMX_KEYS}" --signer "${JMX_KEY_SIGNER}" "${JMX_SRC}" "${JMX_AGENT_JAR}" && \
     mvn-get "${KS_SRC}" "${KS_REPO}" "/usr/local/bin/keystore-tool.jar" && \
     mvn-get "${CW_SRC}" "${CW_REPO}" "/usr/local/bin/curator-wrapper.jar" && \
@@ -161,5 +166,6 @@ RUN --mount=type=bind,target=/src \
     mvn-get "${BC_UTIL_SRC}" "${FIPS_DIR}" && \
     tar -C /src/policies/java.security --owner=root --group=root --no-same-owner --no-same-permissions -cf - . | tar -C / --no-overwrite-dir -xvf - && \
     install -m 0444 -o root -g root /src/policies/bc-fips.policy "${FIPS_DIR}/.bc-fips.policy" && \
+    ln -s "../usr/local/lib/fips" "${BASE_DIR}/fips" && \
     /usr/local/bin/set-java 11 && \
     run-stig /src/stig
