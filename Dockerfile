@@ -104,9 +104,6 @@ ARG VER
 # ARG CACERTS="/etc/pki/java/cacerts"
 ARG CACERTS="/etc/ssl/certs/java/cacerts"
 
-ENV TEMP="${TEMP_DIR}"
-ENV TMP="${TEMP}"
-
 # Set the Java-centric envvars to paths that will be
 # manipulated via the alternatives mechanism, so they
 # always point to the correct location in the filesystem
