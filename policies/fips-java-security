@@ -1,0 +1,206 @@
+#!/bin/bash
+#
+# usage: fips-java-security [JAVA_SECURITY...]
+#
+# Makes the given java.security files (default: those of every JDK under /usr/lib/jvm) use
+# BouncyCastle FIPS, changing as little of the JDK's own configuration as possible:
+#
+#	* the BCFIPS and BCJSSE providers go first, ahead of the JDK's own providers (which
+#	  keep their order)
+#	* the BC-FIPS policy file goes first among the policy files, but only if the JDK still
+#	  has policy.url entries (Java 24+ dropped them along with the Security Manager)
+#	* the default KeyManagerFactory algorithm becomes PKIX (BCJSSE has no SunX509)
+#
+# Everything else stays as the JDK ships it, so every rebuild picks up the JDK's own updates.
+#
+# The file is never edited as text: it's read and written by the JDK's own properties
+# parser (PropertiesXml.java, next to this script), and edited as XML with xmlstarlet. Its
+# syntax (continuations, escapes, separators) never needs to be matched by hand, and
+# whatever isn't found fails the run instead of being silently skipped. The comments are
+# not kept. Running it again changes nothing.
+#
+# Must be run as root. Exits with 0 on success, and 1 otherwise.
+#
+
+set -euo pipefail
+. /.functions
+
+usage()
+{
+	echo "usage: ${0##*/} [JAVA_SECURITY...]" 1>&2
+	exit 1
+}
+
+case "${1:-}" in
+	-h | --help ) usage ;;
+esac
+
+[ "$(id -u)" -eq 0 ] || fail "This script must be run as root"
+
+require_exe xmlstarlet java
+
+CONVERTER="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/PropertiesXml.java"
+is_file_readable "${CONVERTER}" || fail "The converter [${CONVERTER}] is missing"
+
+set_or_default FIPS_DIR "/usr/local/lib/fips"
+
+BC_PROVIDERS=(
+	"org.bouncycastle.jcajce.provider.BouncyCastleFipsProvider"
+	"org.bouncycastle.jsse.provider.BouncyCastleJsseProvider fips:BCFIPS"
+)
+BC_POLICY_URL="file:${FIPS_DIR}/.bc-fips.policy"
+KMF_ALGORITHM="PKIX"
+
+#
+# The XML must keep the DOCTYPE that loadFromXML requires; its DTD is never fetched, but
+# libxml2 says so every time (and only that message is dropped)
+#
+xml()
+{
+	xmlstarlet "${@}" 2> >(grep -v "^Attempt to load network entity http://java.sun.com/dtd/properties.dtd$" 1>&2)
+}
+
+#
+# The numbered entries (PREFIX1, PREFIX2, ...): the JDK reads them from 1 up, until the first
+# missing number. Only canonical numbers count (PREFIX01 is never read, so it's an ordinary
+# property, and is left alone).
+#
+numbered_xpath()
+{
+	local PREFIX="${1}"
+	echo "/properties/entry[starts-with(@key, '${PREFIX}') and string-length(substring-after(@key, '${PREFIX}')) > 0 and translate(substring-after(@key, '${PREFIX}'), '0123456789', '') = '' and not(starts-with(substring-after(@key, '${PREFIX}'), '0'))]"
+}
+
+#
+# Fills LIST with the values the JDK reads, in its order, and AFTER_GAP with the entries
+# (NUMBER<TAB>VALUE) it ignores because they come after a missing number
+#
+read_list()
+{
+	local XML="${1}"
+	local PREFIX="${2}"
+
+	local -A ENTRIES=()
+	local N V
+	while IFS=$'\t' read -r N V ; do
+		ENTRIES["${N}"]="${V}"
+	done < <(xml sel -T -t -m "$(numbered_xpath "${PREFIX}")" -v "substring-after(@key, '${PREFIX}')" -o $'\t' -v "." -n "${XML}")
+
+	LIST=()
+	AFTER_GAP=()
+	N=1
+	while [ -v "ENTRIES[${N}]" ] ; do
+		LIST+=( "${ENTRIES[${N}]}" )
+		unset "ENTRIES[${N}]"
+		(( ++N ))
+	done
+	for N in $(printf '%s\n' "${!ENTRIES[@]}" | sort -n) ; do
+		AFTER_GAP+=( "${N}"$'\t'"${ENTRIES[${N}]}" )
+	done
+}
+
+#
+# Puts the given values first in the numbered list (in the given order), followed by the
+# list's current values in their current order (minus any of the given ones, so running
+# it again changes nothing), and renumbers that list from 1. The entries the JDK ignores
+# (after a missing number) move by the same amount, so they're still ignored. A missing
+# list is an empty one.
+#
+put_first()
+{
+	local XML="${1}"
+	local PREFIX="${2}"
+	shift 2
+
+	local LIST=()
+	local AFTER_GAP=()
+	read_list "${XML}" "${PREFIX}"
+
+	local VALUES=( "${@}" )
+	local V F SKIP
+	for V in "${LIST[@]}" ; do
+		SKIP="false"
+		for F in "${@}" ; do
+			[ "${V}" == "${F}" ] && SKIP="true" && break
+		done
+		as_boolean "${SKIP}" || VALUES+=( "${V}" )
+	done
+
+	local EDITS=( -d "$(numbered_xpath "${PREFIX}")" )
+	local N=0
+	for V in "${VALUES[@]}" ; do
+		(( ++N ))
+		EDITS+=(
+			-s "/properties" -t elem -n "entry" -v "${V}"
+			-i "/properties/entry[last()]" -t attr -n "key" -v "${PREFIX}${N}"
+		)
+	done
+
+	local SHIFT=$(( ${#VALUES[@]} - ${#LIST[@]} ))
+	local E
+	for E in "${AFTER_GAP[@]}" ; do
+		N="${E%%$'\t'*}"
+		EDITS+=(
+			-s "/properties" -t elem -n "entry" -v "${E#*$'\t'}"
+			-i "/properties/entry[last()]" -t attr -n "key" -v "${PREFIX}$(( N + SHIFT ))"
+		)
+	done
+
+	xml ed -L "${EDITS[@]}" "${XML}"
+}
+
+# Whether the JDK reads any entries from the numbered list
+has_list()
+{
+	local LIST=()
+	local AFTER_GAP=()
+	read_list "${1}" "${2}"
+	[ ${#LIST[@]} -gt 0 ]
+}
+
+set_property()
+{
+	local XML="${1}"
+	local KEY="${2}"
+	local VALUE="${3}"
+	local ENTRY="/properties/entry[@key = '${KEY}']"
+	if [ "$(xml sel -t -v "count(${ENTRY})" "${XML}")" -gt 0 ] ; then
+		xml ed -L -u "${ENTRY}" -v "${VALUE}" "${XML}"
+	else
+		xml ed -L -s "/properties" -t elem -n "entry" -v "${VALUE}" -i "/properties/entry[last()]" -t attr -n "key" -v "${KEY}" "${XML}"
+	fi
+}
+
+FILES=( "${@}" )
+if [ ${#FILES[@]} -eq 0 ] ; then
+	readarray -t FILES < <(find /usr/lib/jvm -mindepth 4 -maxdepth 4 -path '*/conf/security/java.security' -exec readlink -f '{}' ';' | sort -u)
+	[ ${#FILES[@]} -gt 0 ] || fail "No java.security files were found under /usr/lib/jvm"
+fi
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "${WORK}"' EXIT
+
+for FILE in "${FILES[@]}" ; do
+	require_file_readable "${FILE}"
+	doing "Configuring [${FILE}] for BouncyCastle FIPS ..."
+
+	XML="${WORK}/java.security.xml"
+	OUT="${WORK}/java.security"
+	java "${CONVERTER}" to-xml "${FILE}" "${XML}" || fail "Failed to convert [${FILE}] to XML"
+
+	put_first "${XML}" "security.provider." "${BC_PROVIDERS[@]}" || fail "Failed to add the BouncyCastle providers to [${FILE}]"
+
+	if has_list "${XML}" "policy.url." ; then
+		put_first "${XML}" "policy.url." "${BC_POLICY_URL}" || fail "Failed to add the BC-FIPS policy to [${FILE}]"
+	else
+		say "\tNo policy.url entries (no Security Manager), so no policy file is added"
+	fi
+
+	set_property "${XML}" "ssl.KeyManagerFactory.algorithm" "${KMF_ALGORITHM}"
+
+	java "${CONVERTER}" from-xml "${XML}" "${OUT}" || fail "Failed to convert the edited XML back for [${FILE}]"
+
+	# Overwrite in place, so the file keeps its owner and mode
+	cat "${OUT}" > "${FILE}" || fail "Failed to update [${FILE}]"
+	ok "Configured [${FILE}]"
+done
