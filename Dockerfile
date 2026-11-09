@@ -161,7 +161,8 @@ RUN --mount=type=bind,target=/src \
     mvn-get "${BC_PROV_SRC}" "${FIPS_DIR}" && \
     mvn-get "${BC_TLS_SRC}" "${FIPS_DIR}" && \
     mvn-get "${BC_UTIL_SRC}" "${FIPS_DIR}" && \
-    tar -C /src/policies/java.security --owner=root --group=root --no-same-owner --no-same-permissions -cf - . | tar -C / --no-overwrite-dir -xvf - && \
+    chmod -R a+rX "${FIPS_DIR}" && \
+    /src/policies/fips-java-security && \
     install -m 0444 -o root -g root /src/policies/bc-fips.policy "${FIPS_DIR}/.bc-fips.policy" && \
     ln -s "../usr/local/lib/fips" "${BASE_DIR}/fips" && \
     /usr/local/bin/set-java 11 && \
