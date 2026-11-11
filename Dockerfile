@@ -150,7 +150,7 @@ RUN --mount=type=bind,target=/src \
     done && \
     install -o root -g root -m 0440 /src/01-set-java /etc/sudoers.d && \
     sed -i -e "s;\${ACM_GROUP};${ACM_GROUP};g" /etc/sudoers.d/01-set-java && \
-    ( tar --owner=root --group=root --mode=u=rwX,go=rX -cf - /src/scripts ) | tar --strip-components=2 -C /usr/local/bin -xvf - && \
+    copy-tree -v -o root -g root -m u=rwX,go=rX /src/scripts/ /usr/local/bin && \
     install -o root -g root -m 0644 /src/jmx-prometheus-agent.yaml "${CONF_DIR}" && \
     mkdir -p "${LIB_DIR}" "${JAVA_SHARED_LIBS_DIR}" && \
     verified-download --hash "sha256" --keys "${JMX_KEYS}" --signer "${JMX_KEY_SIGNER}" "${JMX_SRC}" "${JMX_AGENT_JAR}" && \
